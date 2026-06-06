@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    container_name: rss-aggregator
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - "./RSS Feeds main.xml:/app/RSS Feeds main.xml"
+    env_file:
+      - .env
+    restart: unless-stopped

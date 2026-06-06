@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0">
+  <head>
+    <title>Feeds of Piyush from Inoreader [https://www.inoreader.com]</title>
+  </head>
+  <body>
+    <outline text="Anticipating The Unintended" title="Anticipating The Unintended" type="rss" xmlUrl="https://publicpolicy.substack.com/feed" htmlUrl="https://publicpolicy.substack.com/"/>
+    <outline text="Mind Over Markets by Zerodha Varsity" title="Mind Over Markets by Zerodha Varsity" type="rss" xmlUrl="https://zerodhavarsity.substack.com/feed" htmlUrl="https://zerodhavarsity.substack.com/"/>
+    <outline text="National Interest – ThePrint" title="National Interest – ThePrint" type="rss" xmlUrl="https://theprint.in/category/national-interest/feed/" htmlUrl="https://theprint.in"/>
+    <outline text="The Hindu Daily Aggregated" title="The Hindu Daily Aggregated" type="rss" xmlUrl="https://kill-the-newsletter.com/feeds/qbex8a4en6amdwbuiltg.xml" htmlUrl="https://kill-the-newsletter.com/feeds/qbex8a4en6amdwbuiltg.xml"/>
+    <outline text="ThePrint Essential – ThePrint" title="ThePrint Essential – ThePrint" type="rss" xmlUrl="https://theprint.in/category/theprint-essential/feed/" htmlUrl="https://theprint.in"/>
+    <outline text="Money - Articles" title="Money - Articles">
+      <outline text="Bloomberg India Edition" title="Bloomberg India Edition" type="rss" xmlUrl="https://kill-the-newsletter.com/feeds/8sa0l9kzi1h6us0z1ch0.xml" htmlUrl="https://kill-the-newsletter.com/feeds/8sa0l9kzi1h6us0z1ch0.xml"/>
+    </outline>
+  </body>
+</opml>

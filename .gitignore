@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.continue/
+.env
+.DS_Store
+data/*.db
+
+# generated previews / artifacts
+out.html
+*.png
+*.jpg
+*.jpeg
+rss-aggregator.code-workspace

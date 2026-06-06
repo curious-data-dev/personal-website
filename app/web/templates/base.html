@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}RSS Digest{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+            <li><strong><a href="/" class="brand">📰 RSS Digest</a></strong></li>
+        </ul>
+        <ul>
+            <li><a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>Today</a></li>
+            <li><a href="/history" {% if request.url.path.startswith('/history') %}class="active"{% endif %}>History</a></li>
+            <li><a href="/sources" {% if request.url.path.startswith('/sources') %}class="active"{% endif %}>Sources</a></li>
+        </ul>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="container">
+        <hr>
+        <small>
+            RSS Digest — Personal news aggregator.
+            Built for one person, for life.
+            {% if digest %}Digest for {{ today_pretty }}{% endif %}
+        </small>
+    </footer>
+</body>
+</html>

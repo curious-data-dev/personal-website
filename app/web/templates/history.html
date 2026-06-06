@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Digest History{% endblock %}
+
+{% block content %}
+
+<h1>📚 Digest History</h1>
+
+{% if years %}
+<nav>
+    <ul>
+        {% for y in years %}
+        <li>
+            <a href="/history?year={{ y }}" {% if y == selected_year %}class="active"{% endif %}>
+                {{ y }}
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+
+{% if digests %}
+<table class="striped">
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>Title</th>
+            <th>Articles</th>
+            <th>Sources</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for d in digests %}
+        <tr>
+            <td>{{ d.date }}</td>
+            <td><a href="/digest/{{ d.date }}">{{ d.title or d.date }}</a></td>
+            <td>{{ d.article_count }}</td>
+            <td>{{ d.source_count }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif years %}
+<p class="text-muted">No digests found for {{ selected_year }}.</p>
+{% else %}
+<article>
+    <div style="text-align: center; padding: 2rem;">
+        <h3>No digests yet</h3>
+        <p class="text-muted">Once the scraper runs and summaries are generated, your digest history will appear here.</p>
+    </div>
+</article>
+{% endif %}
+
+{% endblock %}

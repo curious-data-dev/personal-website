@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ article.title }}{% endblock %}
+
+{% block content %}
+
+<article>
+    <header>
+        <nav>
+            <ul>
+                <li><a href="/">&larr; Back to Digest</a></li>
+            </ul>
+        </nav>
+        <h1>{{ article.title }}</h1>
+        <p>
+            <small>
+                {% if article.author %}By {{ article.author }} · {% endif %}
+                {% if article.published_at %}Published: {{ article.published_at[:10] }} · {% endif %}
+                Fetched: {{ article.fetched_at[:10] if article.fetched_at else 'Unknown' }}
+                {% if article.source_id %}
+                · <a href="/sources">Source #{{ article.source_id }}</a>
+                {% endif %}
+            </small>
+        </p>
+    </header>
+
+    {% if article.summary_text %}
+    <section>
+        <h3>📝 Summary</h3>
+        <div class="summary-body">
+            {% for paragraph in article.summary_text.split('\n\n') %}
+                <p>{{ paragraph }}</p>
+            {% endfor %}
+        </div>
+        {% if article.chunk_count > 1 %}
+        <small class="text-muted">Summarized from {{ article.chunk_count }} chunks</small>
+        {% endif %}
+    </section>
+    {% elif article.status == 'summarizing' %}
+    <p class="text-muted">⏳ Summarization in progress...</p>
+    {% elif article.status == 'failed' %}
+    <article class="error-box">
+        <p>❌ Summarization failed</p>
+        {% if article.error_message %}
+        <small>{{ article.error_message }}</small>
+        {% endif %}
+    </article>
+    {% else %}
+    <p class="text-muted">⏳ Awaiting summarization...</p>
+    {% endif %}
+
+    {% if article.raw_text %}
+    <details>
+        <summary>View original text ({{ article.raw_text.split()|length }} words)</summary>
+        <div class="raw-text">
+            {% for paragraph in article.raw_text.split('\n\n') %}
+                <p>{{ paragraph }}</p>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+
+    <footer>
+        <a href="{{ article.url }}" target="_blank" rel="noopener">
+            Read original article →
+        </a>
+    </footer>
+</article>
+
+{% endblock %}

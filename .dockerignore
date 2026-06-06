@@ -1,0 +1,28 @@
+# Don't copy these into the Docker image
+__pycache__/
+*.pyc
+.venv/
+venv/
+.continue/
+.git/
+.gitignore
+.env.example
+*.code-workspace
+
+# Don't need design docs in the container
+0. PROBLEM DEFINITION.md
+1. ARCHITECTURE.md
+2. IMPLEMENTATION_PLAN.md
+
+# Data is mounted as a volume, don't include in image
+data/*.db
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Local test artifacts
+out.html
+*.png
+*.jpg
+*.jpeg

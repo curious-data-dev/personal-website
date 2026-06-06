@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Admin Panel{% endblock %}
+
+{% block content %}
+
+<h1>⚙️ Admin Panel</h1>
+
+<article>
+    <header><h3>Scraping</h3></header>
+    <p>Fetch new articles from all configured RSS feeds.</p>
+    <button id="btn-scrape" class="secondary" onclick="triggerScrape()">🔄 Run Scrape Now</button>
+    <pre id="scrape-result" style="display:none; margin-top: 1rem;"></pre>
+</article>
+
+<article>
+    <header><h3>Summarization</h3></header>
+    <p>Summarize all raw articles and generate today's daily digest.</p>
+    <button id="btn-summarize" class="secondary" onclick="triggerSummarize()">🤖 Run Summarization Now</button>
+    <pre id="summarize-result" style="display:none; margin-top: 1rem;"></pre>
+</article>
+
+<article>
+    <header><h3>Quick Links</h3></header>
+    <ul>
+        <li><a href="/health">Health check (JSON)</a></li>
+        <li><a href="/">View today's digest</a></li>
+        <li><a href="/history">Browse history</a></li>
+    </ul>
+</article>
+
+<script>
+async function triggerScrape() {
+    const btn = document.getElementById('btn-scrape');
+    const pre = document.getElementById('scrape-result');
+    btn.disabled = true;
+    btn.textContent = '⏳ Scraping...';
+    pre.style.display = 'none';
+
+    try {
+        const res = await fetch('/admin/scrape', { method: 'POST' });
+        const data = await res.json();
+        pre.style.display = 'block';
+        pre.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+        pre.style.display = 'block';
+        pre.textContent = 'Error: ' + e.message;
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🔄 Run Scrape Now';
+}
+
+async function triggerSummarize() {
+    const btn = document.getElementById('btn-summarize');
+    const pre = document.getElementById('summarize-result');
+    btn.disabled = true;
+    btn.textContent = '⏳ Summarizing...';
+    pre.style.display = 'none';
+
+    try {
+        const res = await fetch('/admin/summarize', { method: 'POST' });
+        const data = await res.json();
+        pre.style.display = 'block';
+        pre.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+        pre.style.display = 'block';
+        pre.textContent = 'Error: ' + e.message;
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🤖 Run Summarization Now';
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — RSS Digest</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container" style="max-width: 400px; margin-top: 10vh;">
+        <article>
+            <header>
+                <h1>📰 RSS Digest</h1>
+                <p>Sign in to manage</p>
+            </header>
+
+            {% if error %}
+            <p class="error-box">{{ error }}</p>
+            {% endif %}
+
+            <form method="post" action="/login">
+                <fieldset>
+                    <label>
+                        Username
+                        <input type="text" name="username" placeholder="Username" required autofocus>
+                    </label>
+                    <label>
+                        Password
+                        <input type="password" name="password" placeholder="Password" required>
+                    </label>
+                </fieldset>
+                <button type="submit">Sign In</button>
+            </form>
+        </article>
+    </main>
+</body>
+</html>

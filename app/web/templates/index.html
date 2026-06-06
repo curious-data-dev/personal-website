@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Daily Digest — {{ today_pretty }}{% endblock %}
+
+{% block content %}
+
+{% if digest %}
+<article>
+    <header>
+        <h1>📅 {{ digest.title or ("Daily Digest — " + today_pretty) }}</h1>
+        <p>
+            <small>
+                {{ digest.article_count }} articles from {{ digest.source_count }} sources
+                · {{ digest.date }}
+            </small>
+        </p>
+    </header>
+
+    <div class="digest-body">
+        {# Render digest text with Markdown-like formatting #}
+        {% for paragraph in digest.summary_text.split('\n\n') %}
+            {% if paragraph.startswith('# ') %}
+                <h2>{{ paragraph[2:] }}</h2>
+            {% elif paragraph.startswith('## ') %}
+                <h3>{{ paragraph[3:] }}</h3>
+            {% elif paragraph.startswith('### ') %}
+                <h4>{{ paragraph[4:] }}</h4>
+            {% elif paragraph.startswith('- ') %}
+                <ul>
+                {% for line in paragraph.split('\n') %}
+                    <li>{{ line[2:] }}</li>
+                {% endfor %}
+                </ul>
+            {% elif paragraph.startswith('* ') or paragraph.startswith('• ')%}
+                <ul>
+                {% for line in paragraph.split('\n') %}
+                    <li>{{ line[2:] }}</li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p>{{ paragraph }}</p>
+            {% endif %}
+        {% endfor %}
+    </div>
+</article>
+
+{% if digest_articles %}
+<details>
+    <summary><strong>Articles in this digest</strong> ({{ digest_articles|length }})</summary>
+    <ul>
+        {% for da in digest_articles %}
+        <li>
+            <a href="/article/{{ da.id }}">{{ da.title }}</a>
+            <small class="text-muted">— {{ da.source_name or 'Unknown source' }}</small>
+        </li>
+        {% endfor %}
+    </ul>
+</details>
+{% endif %}
+
+{% else %}
+<article>
+    <header>
+        <h1>📅 {{ today_pretty }}</h1>
+    </header>
+    <div style="text-align: center; padding: 3rem 1rem;">
+        <h3>No digest available for today yet</h3>
+        <p class="text-muted">
+            The daily scrape runs at {{ scrape_time }} IST.
+            <br>Check back later!
+        </p>
+        {% if recent_articles %}
+        <p>Showing the most recent articles below.</p>
+        {% endif %}
+    </div>
+</article>
+
+{% if recent_articles %}
+<article>
+    <header><h3>📰 Recent Articles</h3></header>
+    <ul>
+        {% for article in recent_articles %}
+        <li>
+            <a href="/article/{{ article.id }}">{{ article.title }}</a>
+            <small class="text-muted">— {{ article.source_name or 'Unknown' }}</small>
+        </li>
+        {% endfor %}
+    </ul>
+</article>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}
