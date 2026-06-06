@@ -3,67 +3,76 @@
 
 {% block content %}
 
-<article>
-    <header>
-        <nav>
-            <ul>
-                <li><a href="/">&larr; Back to Digest</a></li>
-            </ul>
-        </nav>
-        <h1>{{ article.title }}</h1>
-        <p>
-            <small>
-                {% if article.author %}By {{ article.author }} · {% endif %}
-                {% if article.published_at %}Published: {{ article.published_at[:10] }} · {% endif %}
-                Fetched: {{ article.fetched_at[:10] if article.fetched_at else 'Unknown' }}
-                {% if article.source_id %}
-                · <a href="/sources">Source #{{ article.source_id }}</a>
-                {% endif %}
-            </small>
-        </p>
-    </header>
+{# ── Breadcrumb ── #}
+<div class="breadcrumb">
+    <a href="/">Today's Digest</a> › <span>Article</span>
+</div>
 
-    {% if article.summary_text %}
-    <section>
-        <h3>📝 Summary</h3>
-        <div class="summary-body">
-            {% for paragraph in article.summary_text.split('\n\n') %}
-                <p>{{ paragraph }}</p>
-            {% endfor %}
-        </div>
+{# ── Header ── #}
+<div class="article-header">
+    <h1>{{ article.title }}</h1>
+    <div class="article-meta">
+        {% if article.author %}<span>✍️ {{ article.author }}</span>{% endif %}
+        {% if article.published_at %}
+        <span class="sep">·</span>
+        <span>📅 {{ article.published_at[:10] }}</span>
+        {% endif %}
+        {% if article.fetched_at %}
+        <span class="sep">·</span>
+        <span>Fetched {{ article.fetched_at[:10] }}</span>
+        {% endif %}
         {% if article.chunk_count > 1 %}
-        <small class="text-muted">Summarized from {{ article.chunk_count }} chunks</small>
+        <span class="sep">·</span>
+        <span class="reading-time">{{ article.chunk_count }} chunks</span>
         {% endif %}
-    </section>
-    {% elif article.status == 'summarizing' %}
-    <p class="text-muted">⏳ Summarization in progress...</p>
-    {% elif article.status == 'failed' %}
-    <article class="error-box">
-        <p>❌ Summarization failed</p>
-        {% if article.error_message %}
-        <small>{{ article.error_message }}</small>
-        {% endif %}
-    </article>
-    {% else %}
-    <p class="text-muted">⏳ Awaiting summarization...</p>
-    {% endif %}
+    </div>
+</div>
 
-    {% if article.raw_text %}
-    <details>
-        <summary>View original text ({{ article.raw_text.split()|length }} words)</summary>
-        <div class="raw-text">
-            {% for paragraph in article.raw_text.split('\n\n') %}
-                <p>{{ paragraph }}</p>
-            {% endfor %}
-        </div>
-    </details>
-    {% endif %}
+{# ── Summary ── #}
+{% if article.summary_text %}
+<div class="summary-card">
+    <h3>📝 Summary</h3>
+    {% for paragraph in article.summary_text.split('\n\n') %}
+        <p>{{ paragraph }}</p>
+    {% endfor %}
+</div>
+{% elif article.status == 'summarizing' %}
+<div class="card" style="text-align:center;padding:2rem;">
+    <p style="color:var(--text-muted);">⏳ Summarization in progress...</p>
+</div>
+{% elif article.status == 'failed' %}
+<div class="error-box">
+    <p><strong>❌ Summarization failed</strong></p>
+    {% if article.error_message %}<p style="font-size:0.85rem;">{{ article.error_message }}</p>{% endif %}
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:2rem;">
+    <p style="color:var(--text-muted);">⏳ Awaiting summarization...</p>
+</div>
+{% endif %}
 
-    <footer>
-        <a href="{{ article.url }}" target="_blank" rel="noopener">
-            Read original article →
-        </a>
-    </footer>
-</article>
+{# ── Original Text ── #}
+{% if article.raw_text %}
+<details>
+    <summary>📄 View original text ({{ article.raw_text.split()|length }} words)</summary>
+    <div class="raw-text">
+        {% for paragraph in article.raw_text.split('\n\n') %}
+            <p>{{ paragraph }}</p>
+        {% endfor %}
+    </div>
+</details>
+{% endif %}
+
+{# ── Footer Links ── #}
+<div class="article-footer-links">
+    <a href="{{ article.url }}" target="_blank" rel="noopener" class="external-link">
+        🔗 Read original article
+    </a>
+    {% if article.fetched_at %}
+    <a href="/digest/{{ article.fetched_at[:10] }}" class="external-link" style="border-color:var(--border);color:var(--text-muted);">
+        📅 View digest for {{ article.fetched_at[:10] }}
+    </a>
+    {% endif %}
+</div>
 
 {% endblock %}

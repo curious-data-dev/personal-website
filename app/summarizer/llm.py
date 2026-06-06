@@ -46,7 +46,7 @@ def get_last_provider() -> str:
 # ---------------------------------------------------------------------------
 
 
-def call_llm(prompt: str, provider: Optional[str] = None) -> str:
+def call_llm(prompt: str, provider: Optional[str] = None, max_tokens: int = 4096, model: Optional[str] = None, on_progress=None) -> str:
     """Call LLM with retries, falling back through Gemini → Groq → DeepSeek.
 
     Args:
@@ -70,10 +70,11 @@ def call_llm(prompt: str, provider: Optional[str] = None) -> str:
             continue
 
         tried.append(provider_name)
+        if on_progress: on_progress(f"Trying {provider_name}...")
         logger.info(f"Trying provider: {provider_name}")
 
         try:
-            result = _call_with_retry(provider_name, prompt)
+            result = _call_with_retry(provider_name, prompt, max_tokens, model, on_progress)
             # Track usage (~4 chars per token estimate)
             _usage["calls"] += 1
             _usage["tokens_in"] += len(prompt) // 4
@@ -89,16 +90,16 @@ def call_llm(prompt: str, provider: Optional[str] = None) -> str:
     )
 
 
-def _call_with_retry(provider_name: str, prompt: str) -> str:
+def _call_with_retry(provider_name: str, prompt: str, max_tokens: int = 4096, model: Optional[str] = None, on_progress=None) -> str:
     """Call a single provider with up to MAX_RETRIES attempts."""
     for attempt in range(MAX_RETRIES):
         try:
             if provider_name == "gemini":
-                return _call_gemini(prompt)
+                return _call_gemini(prompt, max_tokens, model)
             elif provider_name == "groq":
-                return _call_groq(prompt)
+                return _call_groq(prompt, max_tokens, model)
             elif provider_name == "deepseek":
-                return _call_deepseek(prompt)
+                return _call_deepseek(prompt, max_tokens, model)
         except Exception as e:
             error_str = str(e).lower()
             is_retryable = any(
@@ -108,11 +109,13 @@ def _call_with_retry(provider_name: str, prompt: str) -> str:
             is_quota_exhausted = "quota" in error_str and "limit: 0" in error_str
 
             if is_quota_exhausted:
+                if on_progress: on_progress(f"{provider_name} quota exhausted, falling back...")
                 logger.warning(f"{provider_name} daily quota exhausted, falling back")
                 raise  # Bubble up to try next provider
 
             if is_retryable and attempt < MAX_RETRIES - 1:
                 delay = BASE_DELAY * (2**attempt)
+                if on_progress: on_progress(f"{provider_name} retry {attempt+1}/{MAX_RETRIES}...")
                 logger.warning(
                     f"{provider_name} attempt {attempt + 1}/{MAX_RETRIES} failed, "
                     f"retrying in {delay}s"
@@ -141,18 +144,18 @@ def _provider_configured(provider_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _call_gemini(prompt: str) -> str:
+def _call_gemini(prompt: str, max_tokens: int = 4096, model: Optional[str] = None) -> str:
     if not settings.gemini_api_key:
         raise ValueError("GEMINI_API_KEY is not set")
 
     client = genai.Client(api_key=settings.gemini_api_key)
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=model if model else settings.gemini_model,
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             temperature=0.5,
             top_p=0.95,
-            max_output_tokens=2048,
+            max_output_tokens=max_tokens,
         ),
     )
 
@@ -169,16 +172,16 @@ def _call_gemini(prompt: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _call_groq(prompt: str) -> str:
+def _call_groq(prompt: str, max_tokens: int = 4096, model: Optional[str] = None) -> str:
     if not settings.groq_api_key:
         raise ValueError("GROQ_API_KEY is not set")
 
     client = Groq(api_key=settings.groq_api_key)
     completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=model if model else "llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.5,
-        max_tokens=2048,
+        max_tokens=max_tokens,
     )
 
     if not completion.choices:
@@ -196,7 +199,7 @@ def _call_groq(prompt: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _call_deepseek(prompt: str) -> str:
+def _call_deepseek(prompt: str, max_tokens: int = 4096, model: Optional[str] = None) -> str:
     if not settings.deepseek_api_key:
         raise ValueError("DEEPSEEK_API_KEY is not set")
 
@@ -208,10 +211,10 @@ def _call_deepseek(prompt: str) -> str:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "deepseek-chat",
+                "model": model if model else "deepseek-chat",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.5,
-                "max_tokens": 2048,
+                "max_tokens": max_tokens,
             },
         )
         response.raise_for_status()

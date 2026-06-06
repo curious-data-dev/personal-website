@@ -3,89 +3,92 @@
 
 {% block content %}
 
-{% if digest %}
-<article>
-    <header>
-        <h1>📅 {{ digest.title or ("Daily Digest — " + today_pretty) }}</h1>
-        <p>
-            <small>
-                {{ digest.article_count }} articles from {{ digest.source_count }} sources
-                · {{ digest.date }}
-            </small>
-        </p>
-    </header>
+{# ── Date Navigation ── #}
+<div class="date-nav">
+    {% if prev_date %}
+    <a href="/digest/{{ prev_date }}" class="date-nav-arrow">← {{ prev_date }}</a>
+    {% else %}
+    <span class="date-nav-arrow disabled">←</span>
+    {% endif %}
 
+    <h1>📅 {{ today_pretty }}</h1>
+
+    {% if next_date %}
+    <a href="/digest/{{ next_date }}" class="date-nav-arrow">{{ next_date }} →</a>
+    {% else %}
+    <span class="date-nav-arrow disabled">→</span>
+    {% endif %}
+</div>
+
+{# ── Status Bar (homepage only) ── #}
+{% if last_scrape %}
+<div class="status-bar">
+    <span class="stat">🕐 <strong>Last scrape:</strong> {{ last_scrape.started_at[:16] }}</span>
+    <span class="stat">📰 <strong>{{ last_scrape.articles_new }}</strong> new</span>
+    <span class="stat">✅ <strong>{{ last_scrape.feeds_success }}/{{ last_scrape.feeds_total }}</strong> feeds</span>
+    <span class="stat">⏰ Next: <strong>{{ scrape_time }} IST</strong></span>
+    {% if digest %}
+    <span class="status-badge ok">Digest ready</span>
+    {% else %}
+    <span class="status-badge warn">Pending</span>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ── Digest Content ── #}
+{% if digest %}
+<article class="card" style="padding: 1.75rem;">
     <div class="digest-body">
-        {# Render digest text with Markdown-like formatting #}
-        {% for paragraph in digest.summary_text.split('\n\n') %}
-            {% if paragraph.startswith('# ') %}
-                <h2>{{ paragraph[2:] }}</h2>
-            {% elif paragraph.startswith('## ') %}
-                <h3>{{ paragraph[3:] }}</h3>
-            {% elif paragraph.startswith('### ') %}
-                <h4>{{ paragraph[4:] }}</h4>
-            {% elif paragraph.startswith('- ') %}
-                <ul>
-                {% for line in paragraph.split('\n') %}
-                    <li>{{ line[2:] }}</li>
-                {% endfor %}
-                </ul>
-            {% elif paragraph.startswith('* ') or paragraph.startswith('• ')%}
-                <ul>
-                {% for line in paragraph.split('\n') %}
-                    <li>{{ line[2:] }}</li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p>{{ paragraph }}</p>
-            {% endif %}
-        {% endfor %}
+        {{ digest.summary_text | markdown | safe }}
     </div>
+
+    <footer style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);font-size:0.82rem;color:var(--text-muted);">
+        {{ digest.article_count }} articles from {{ digest.source_count }} sources
+    </footer>
 </article>
 
+{# ── Articles in digest ── #}
 {% if digest_articles %}
 <details>
     <summary><strong>Articles in this digest</strong> ({{ digest_articles|length }})</summary>
-    <ul>
-        {% for da in digest_articles %}
-        <li>
+    <div class="card" style="margin-top:0.5rem;padding:1rem 1.25rem;">
+    {% for da in digest_articles %}
+        <div class="article-link-card">
             <a href="/article/{{ da.id }}">{{ da.title }}</a>
-            <small class="text-muted">— {{ da.source_name or 'Unknown source' }}</small>
-        </li>
-        {% endfor %}
-    </ul>
+            {% if da.source_category %}
+            <span class="source-badge {{ da.source_category|lower|replace(' ', '-')|replace('&', '') }}">{{ da.source_category }}</span>
+            {% endif %}
+        </div>
+    {% endfor %}
+    </div>
 </details>
 {% endif %}
 
+{# ── Empty State ── #}
 {% else %}
-<article>
-    <header>
-        <h1>📅 {{ today_pretty }}</h1>
-    </header>
-    <div style="text-align: center; padding: 3rem 1rem;">
-        <h3>No digest available for today yet</h3>
-        <p class="text-muted">
-            The daily scrape runs at {{ scrape_time }} IST.
-            <br>Check back later!
-        </p>
-        {% if recent_articles %}
-        <p>Showing the most recent articles below.</p>
-        {% endif %}
-    </div>
-</article>
+<div class="empty-state">
+    <div class="empty-state-icon">📭</div>
+    <h3>No digest available for {{ today_pretty }}</h3>
+    <p>The daily scrape runs at <strong>{{ scrape_time }} IST</strong>.</p>
+    {% if recent_articles %}
+    <p style="margin-top:0.75rem;">Showing recent articles below.</p>
+    {% else %}
+    <p style="margin-top:0.5rem;font-size:0.85rem;">Check back after the scheduled scrape, or visit <a href="/history">history</a> for past digests.</p>
+    {% endif %}
+</div>
 
 {% if recent_articles %}
-<article>
-    <header><h3>📰 Recent Articles</h3></header>
-    <ul>
-        {% for article in recent_articles %}
-        <li>
+<div style="margin-top:1.5rem;">
+    <h3 style="color:var(--ink);margin-bottom:0.75rem;">📰 Recent Articles</h3>
+    <div class="card" style="padding:1rem 1.25rem;">
+    {% for article in recent_articles %}
+        <div class="article-link-card">
             <a href="/article/{{ article.id }}">{{ article.title }}</a>
-            <small class="text-muted">— {{ article.source_name or 'Unknown' }}</small>
-        </li>
-        {% endfor %}
-    </ul>
-</article>
+            <span class="source-badge">{{ article.source_name or 'Unknown' }}</span>
+        </div>
+    {% endfor %}
+    </div>
+</div>
 {% endif %}
 
 {% endif %}

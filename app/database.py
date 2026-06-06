@@ -38,9 +38,17 @@ def init_db() -> None:
     conn = get_db()
     try:
         conn.executescript(SCHEMA)
+        _run_migrations(conn)
         conn.commit()
     finally:
         conn.close()
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Add columns that may be missing from older schemas."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(articles)")}
+    if "llm_provider" not in cols:
+        conn.execute("ALTER TABLE articles ADD COLUMN llm_provider TEXT")
+        conn.commit()
 
 
 SCHEMA = """
@@ -275,7 +283,13 @@ def insert_daily_digest(
                updated_at = CURRENT_TIMESTAMP""",
         (date_str, title, summary_text, article_count, source_count),
     )
-    return cur.lastrowid
+    if cur.lastrowid:
+        return cur.lastrowid
+    # ON CONFLICT UPDATE doesn't set lastrowid — fetch the existing ID
+    row = conn.execute(
+        "SELECT id FROM daily_digests WHERE date = ?", (date_str,)
+    ).fetchone()
+    return row[0] if row else 0
 
 
 def get_digest_for_date(
@@ -326,7 +340,7 @@ def get_digest_articles(
     conn: sqlite3.Connection, digest_id: int
 ) -> list[dict[str, Any]]:
     rows = conn.execute(
-        """SELECT a.*, s.name as source_name
+        """SELECT a.*, s.name as source_name, s.category as source_category
            FROM digest_articles da
            JOIN articles a ON da.article_id = a.id
            JOIN sources s ON a.source_id = s.id
@@ -378,4 +392,29 @@ def finish_scrape_log(
             json.dumps(counts.get("errors", [])),
             log_id,
         ),
+    )
+
+
+def get_last_scrape(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Return info about the most recent scrape run."""
+    row = conn.execute(
+        "SELECT * FROM scrape_log ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    return dict(row) if row else None
+
+def get_adjacent_dates(
+    conn: sqlite3.Connection, date_str: str
+) -> tuple[str | None, str | None]:
+    """Return (prev_date, next_date) for digest navigation."""
+    prev_row = conn.execute(
+        "SELECT date FROM daily_digests WHERE date < ? ORDER BY date DESC LIMIT 1",
+        (date_str,),
+    ).fetchone()
+    next_row = conn.execute(
+        "SELECT date FROM daily_digests WHERE date > ? ORDER BY date ASC LIMIT 1",
+        (date_str,),
+    ).fetchone()
+    return (
+        prev_row["date"] if prev_row else None,
+        next_row["date"] if next_row else None,
     )

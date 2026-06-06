@@ -1,14 +1,15 @@
 """FastAPI route definitions for the web interface."""
 
+import re
 import secrets
+import threading
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Request, Depends, HTTPException, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
 
 from app.config import settings
 from app.database import (
@@ -21,18 +22,108 @@ from app.database import (
     get_all_sources,
     get_active_sources,
     get_recent_articles,
+    get_last_scrape,
+    get_adjacent_dates,
 )
 from app.scraper.service import run_scrape
 from app.summarizer.service import run_summarization
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
+
+# ---------------------------------------------------------------------------
+# Jinja2 Markdown Filter
+# ---------------------------------------------------------------------------
+
+def _render_inline(text: str) -> str:
+    """Render inline markdown: **bold**, *italic*."""
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
+    return text
+
+def render_markdown(text: str) -> str:
+    """Render standard Markdown to HTML.
+
+    Supports: ## headings, **bold**, - or * bullet lists, regular paragraphs.
+    """
+    if not text:
+        return ""
+    parts = []
+    for para in text.split('\n\n'):
+        para = para.strip()
+        if not para:
+            continue
+        lines = para.split('\n')
+        first = lines[0].strip()
+
+        # Headings — may have trailing bullet lines in same paragraph
+        if first.startswith('## '):
+            parts.append(f'<h2>{_render_inline(first[3:])}</h2>')
+            _append_trailing_content(parts, lines)
+        elif first.startswith('# '):
+            parts.append(f'<h2>{_render_inline(first[2:])}</h2>')
+            _append_trailing_content(parts, lines)
+        elif first.startswith('### '):
+            parts.append(f'<h3>{_render_inline(first[4:])}</h3>')
+            _append_trailing_content(parts, lines)
+
+        # Bullet list — every line starts with - or *
+        elif _is_bullet_list(lines):
+            items = ''.join(
+                f'<li>{_render_inline(_clean_bullet(l))}</li>'
+                for l in lines if l.strip()
+            )
+            parts.append(f'<ul>{items}</ul>')
+
+        # Regular paragraph
+        else:
+            rendered = '<br>'.join(_render_inline(l) for l in lines)
+            parts.append(f'<p>{rendered}</p>')
+    return '\n'.join(parts)
+
+def _append_trailing_content(parts: list, lines: list[str]) -> None:
+    """If a heading paragraph has trailing bullet lines, render them as a list."""
+    rest = [l.strip() for l in lines[1:] if l.strip()]
+    if rest and _is_bullet_list(rest):
+        items = ''.join(
+            f'<li>{_render_inline(_clean_bullet(l))}</li>' for l in rest
+        )
+        parts.append(f'<ul>{items}</ul>')
+    elif rest:
+        parts.append(f'<p>{"<br>".join(_render_inline(l) for l in rest)}</p>')
+
+def _is_bullet_list(lines: list[str]) -> bool:
+    """Check if all non-empty lines start with a bullet marker."""
+    non_empty = [l.strip() for l in lines if l.strip()]
+    if not non_empty:
+        return False
+    return all(l[0] in '-*\u2022' for l in non_empty)
+
+def _clean_bullet(line: str) -> str:
+    """Strip leading bullet marker and whitespace from a line."""
+    s = line.strip()
+    while s and s[0] in '-*\u2022':
+        s = s[1:]
+    return s.strip()
+
+templates.env.filters["markdown"] = render_markdown
 
 # ---------------------------------------------------------------------------
 # Simple session-based auth (for manual triggers)
 # ---------------------------------------------------------------------------
 
 SESSIONS: dict[str, datetime] = {}  # token → expiry
+
+# Track background job progress: date → status message
+_job_status: dict[str, str] = {}
+
+def _set_job_status(key: str, msg: str) -> None:
+    _job_status[key] = msg
+
+def _clear_job_status(key: str) -> None:
+    _job_status.pop(key, None)
 
 
 def _check_session(request: Request) -> bool:
@@ -60,8 +151,9 @@ async def home(request: Request):
         if digest:
             digest_articles = get_digest_articles(conn, digest["id"])
 
-        # Also get recent articles for a sidebar/overview
         recent_articles = get_recent_articles(conn, limit=10)
+        last_scrape = get_last_scrape(conn)
+        prev_date, next_date = get_adjacent_dates(conn, today)
 
         return templates.TemplateResponse(
             request,
@@ -70,6 +162,9 @@ async def home(request: Request):
                 "digest": digest,
                 "digest_articles": digest_articles,
                 "recent_articles": recent_articles,
+                "last_scrape": last_scrape,
+                "prev_date": prev_date,
+                "next_date": next_date,
                 "today_str": today,
                 "today_pretty": _format_date_pretty(today),
                 "scrape_time": f"{settings.scrape_cron_hour:02d}:{settings.scrape_cron_minute:02d}",
@@ -89,6 +184,8 @@ async def digest_detail(request: Request, date_str: str):
             raise HTTPException(status_code=404, detail="Digest not found for this date")
 
         digest_articles = get_digest_articles(conn, digest["id"])
+        prev_date, next_date = get_adjacent_dates(conn, date_str)
+
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -96,6 +193,9 @@ async def digest_detail(request: Request, date_str: str):
                 "digest": digest,
                 "digest_articles": digest_articles,
                 "recent_articles": [],
+                "last_scrape": None,
+                "prev_date": prev_date,
+                "next_date": next_date,
                 "today_str": date_str,
                 "today_pretty": _format_date_pretty(date_str),
                 "scrape_time": f"{settings.scrape_cron_hour:02d}:{settings.scrape_cron_minute:02d}",
@@ -229,7 +329,7 @@ async def admin_panel(request: Request):
 
 @router.post("/admin/scrape")
 async def trigger_scrape(request: Request):
-    """Manually trigger a scrape run. Accepts optional date range in JSON body."""
+    """Manually trigger a scrape run in the background."""
     if not _check_session(request):
         raise HTTPException(status_code=401)
 
@@ -241,30 +341,83 @@ async def trigger_scrape(request: Request):
     start_date = body.get("start_date") or None
     end_date = body.get("end_date") or None
 
-    try:
-        stats = run_scrape(start_date=start_date, end_date=end_date)
-        return JSONResponse({
-            "ok": True,
-            "stats": stats,
-        })
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    def _run():
+        try:
+            stats = run_scrape(start_date=start_date, end_date=end_date)
+            logger.info(f"Background scrape complete: {stats}")
+        except Exception as e:
+            logger.error(f"Background scrape failed: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return JSONResponse({
+        "ok": True,
+        "status": "started",
+        "start_date": start_date,
+        "end_date": end_date,
+    })
 
 
 @router.post("/admin/summarize")
 async def trigger_summarize(request: Request):
-    """Manually trigger summarization."""
+    """Manually trigger summarization in the background."""
     if not _check_session(request):
         raise HTTPException(status_code=401)
 
-    try:
-        stats = run_summarization()
-        return JSONResponse({
-            "ok": True,
-            "stats": stats,
-        })
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    def _run():
+        try:
+            stats = run_summarization()
+            logger.info(f"Background summarization complete: {stats}")
+        except Exception as e:
+            logger.error(f"Background summarization failed: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return JSONResponse({
+        "ok": True,
+        "status": "started",
+    })
+
+
+@router.post("/admin/regenerate-digest/{date_str}")
+async def regenerate_digest(request: Request, date_str: str):
+    """Regenerate the daily digest for a specific date.
+    Accepts optional query params: provider (gemini|groq|deepseek) and model."""
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+
+    provider = request.query_params.get("provider") or None
+    model = request.query_params.get("model") or None
+
+    from app.summarizer.service import _generate_daily_digest
+
+    def _run():
+        conn = get_db()
+        try:
+            _set_job_status(date_str, "Building prompt...")
+            _generate_daily_digest(
+                conn, date_str,
+                provider=provider, model=model,
+                on_progress=lambda msg: _set_job_status(date_str, msg),
+            )
+            conn.commit()
+            _set_job_status(date_str, "✅ Done")
+            logger.info(f"Digest regenerated for {date_str}")
+        except Exception as e:
+            _set_job_status(date_str, f"❌ Failed: {str(e)[:100]}")
+            logger.error(f"Digest regeneration failed for {date_str}: {e}")
+        finally:
+            conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return JSONResponse({
+        "ok": True,
+        "status": "started",
+        "date": date_str,
+        "provider": provider,
+        "model": model,
+    })
 
 
 @router.get("/admin/status")
@@ -321,6 +474,7 @@ async def admin_status(request: Request):
             "dates": dates,
             "llm": llm_stats,
             "providers": providers,
+            "jobs": dict(_job_status),
         })
     finally:
         conn.close()

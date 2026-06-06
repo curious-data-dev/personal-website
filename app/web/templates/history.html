@@ -3,52 +3,55 @@
 
 {% block content %}
 
-<h1>📚 Digest History</h1>
+<h1 style="color:var(--ink);margin-bottom:0.25rem;">📚 Digest History</h1>
+<p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1.25rem;">Browse past daily digests</p>
 
 {% if years %}
-<nav>
-    <ul>
-        {% for y in years %}
-        <li>
-            <a href="/history?year={{ y }}" {% if y == selected_year %}class="active"{% endif %}>
-                {{ y }}
-            </a>
-        </li>
+<div class="year-tabs">
+    {% for y in years %}
+    <a href="/history?year={{ y }}" class="year-tab {% if y == selected_year %}active{% endif %}">{{ y }}</a>
+    {% endfor %}
+</div>
+
+<div class="month-selector">
+    <select onchange="location.href='/history?year={{ selected_year }}&month=' + this.value">
+        <option value="">All months</option>
+        {% for m in range(1, 13) %}
+        <option value="{{ m }}" {% if selected_month == m %}selected{% endif %}>
+            {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }}
+        </option>
         {% endfor %}
-    </ul>
-</nav>
+    </select>
+</div>
 {% endif %}
 
 {% if digests %}
-<table class="striped">
-    <thead>
-        <tr>
-            <th>Date</th>
-            <th>Title</th>
-            <th>Articles</th>
-            <th>Sources</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for d in digests %}
-        <tr>
-            <td>{{ d.date }}</td>
-            <td><a href="/digest/{{ d.date }}">{{ d.title or d.date }}</a></td>
-            <td>{{ d.article_count }}</td>
-            <td>{{ d.source_count }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="history-grid">
+    {% for d in digests %}
+    <a href="/digest/{{ d.date }}" class="history-card">
+        <div class="history-card-date">{{ d.date }}</div>
+        <div class="history-card-title">{{ d.title or d.date }}</div>
+        <div class="history-card-stats">{{ d.article_count }} articles · {{ d.source_count }} sources</div>
+        {% if d.summary_text %}
+        <div class="history-card-excerpt">{{ d.summary_text[:200] }}…</div>
+        {% endif %}
+    </a>
+    {% endfor %}
+</div>
+
 {% elif years %}
-<p class="text-muted">No digests found for {{ selected_year }}.</p>
+<div class="empty-state" style="margin-top:1rem;padding:2rem;">
+    <div class="empty-state-icon">📭</div>
+    <h3>No digests found for {{ selected_year }}{% if selected_month %} — {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][selected_month-1] }}{% endif %}</h3>
+    <p>Try a different year or month.</p>
+</div>
+
 {% else %}
-<article>
-    <div style="text-align: center; padding: 2rem;">
-        <h3>No digests yet</h3>
-        <p class="text-muted">Once the scraper runs and summaries are generated, your digest history will appear here.</p>
-    </div>
-</article>
+<div class="empty-state">
+    <div class="empty-state-icon">📚</div>
+    <h3>No digests yet</h3>
+    <p>Once the scraper runs and summaries are generated, your digest history will appear here.</p>
+</div>
 {% endif %}
 
 {% endblock %}

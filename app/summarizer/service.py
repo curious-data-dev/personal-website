@@ -1,4 +1,4 @@
-"""Summarization service — Map-Reduce orchestration.
+"""Summarization service - Map-Reduce orchestration.
 
 Pipeline:
 1. Query raw articles from DB (status='raw')
@@ -93,8 +93,20 @@ def run_summarization(regenerate_dates: list[str] | None = None) -> dict:
 
             conn.commit()
 
-        # 2. Regenerate digests ONLY for dates with newly summarized articles
-        if stats["articles_processed"] > 0:
+        # 2. Regenerate digests for affected dates
+        # Find dates with summarized articles but no digest yet
+        orphan_rows = conn.execute("""
+            SELECT DISTINCT date(a.fetched_at) as d
+            FROM articles a
+            WHERE a.status = 'summarized'
+              AND NOT EXISTS (
+                SELECT 1 FROM daily_digests dg WHERE dg.date = date(a.fetched_at)
+              )
+        """).fetchall()
+        for row in orphan_rows:
+            affected_dates.add(row["d"])
+
+        if affected_dates:
             logger.info(f"Regenerating digests for {len(affected_dates)} date(s): {sorted(affected_dates)}")
             for date_str in sorted(affected_dates):
                 try:
@@ -169,13 +181,16 @@ def _summarize_article(raw_text: str) -> tuple[str, int, str]:
 # ---------------------------------------------------------------------------
 
 
-def _generate_daily_digest(conn, date_str: str) -> None:
+def _generate_daily_digest(conn, date_str: str, provider: str | None = None, model: str | None = None, on_progress=None) -> None:
     """Generate (or regenerate) the daily digest for a given date."""
     articles = get_articles_for_date(conn, date_str)
 
     if not articles:
+        if on_progress: on_progress("No articles found")
         logger.info(f"No summarized articles for {date_str}, skipping digest")
         return
+
+    if on_progress: on_progress(f"Building prompt from {len(articles)} articles...")
 
     # Build a digest from article summaries
     article_summaries = "\n\n---\n\n".join(
@@ -185,15 +200,23 @@ def _generate_daily_digest(conn, date_str: str) -> None:
         for a in articles
     )
 
+    if on_progress: on_progress("Sending to LLM...")
+
     digest_text = call_llm(
-        _DIGEST_PROMPT.format(date=date_str, article_summaries=article_summaries)
+        _DIGEST_PROMPT.format(date=date_str, article_summaries=article_summaries),
+        provider=provider,
+        model=model,
+        max_tokens=8192,
+        on_progress=on_progress,
     )
+
+    if on_progress: on_progress("LLM responded, saving...")
 
     # Count unique sources
     unique_sources = len({a.get("source_id") for a in articles})
 
     # Generate title
-    title = f"Daily Digest — {_format_date_pretty(date_str)}"
+    title = f"Daily Digest - {_format_date_pretty(date_str)}"
 
     digest_id = insert_daily_digest(
         conn,
@@ -223,7 +246,7 @@ _SINGLE_SUMMARY_PROMPT = """You are a skilled news summarizer. Summarize the fol
 Guidelines:
 - 3-5 paragraphs maximum
 - Preserve all key facts, names, numbers, and dates
-- Neutral, objective tone — no editorialising
+- Neutral, objective tone - no editorialising
 - Write in clear, simple English
 - Do NOT include phrases like "This article discusses" or "The author states"
 
@@ -262,12 +285,12 @@ SYNTHESIZED SUMMARY:"""
 _DIGEST_PROMPT = """You are a daily news editor. Synthesize the following article summaries into one cohesive daily digest for {date}.
 
 Guidelines:
-- Group related stories under section headings (e.g., "📰 Politics & Policy", "📈 Markets & Economy", "🌍 World News")
+- Group related stories under Markdown section headings using `##` (e.g., "## 📰 Politics & Policy", "## 📈 Markets & Economy", "## 🌍 World News")
 - 2-3 paragraphs per section
-- Start with a 1-2 sentence "Today's Highlights" overview
+- Start with a 1-2 sentence "Today's Highlights" overview (use `##` heading for it too)
 - Preserve key facts, numbers, and names
 - Neutral, objective tone
-- End with a "💡 Key Takeaway" summary bullet list (3-5 points)
+- End with a "## 💡 Key Takeaway" section using bullet points (`- `), 3-5 points
 
 ARTICLE SUMMARIES:
 {article_summaries}

@@ -1,36 +1,62 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}RSS Digest{% endblock %}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📰</text></svg>" type="image/svg+xml">
     <link rel="stylesheet" href="/static/style.css">
     {% block head_extra %}{% endblock %}
 </head>
 <body>
-    <nav class="container-fluid">
-        <ul>
-            <li><strong><a href="/" class="brand">📰 RSS Digest</a></strong></li>
-        </ul>
-        <ul>
-            <li><a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>Today</a></li>
-            <li><a href="/history" {% if request.url.path.startswith('/history') %}class="active"{% endif %}>History</a></li>
-            <li><a href="/sources" {% if request.url.path.startswith('/sources') %}class="active"{% endif %}>Sources</a></li>
-        </ul>
+    <nav class="app-nav">
+        <a href="/" class="nav-brand">📰 RSS Digest</a>
+
+        <div style="display:flex;align-items:center;gap:0.25rem;">
+            <ul class="nav-links">
+                <li><a href="/" class="nav-icon {% if request.url.path == '/' %}active{% endif %}">📅 <span class="nav-label">Today</span></a></li>
+                <li><a href="/history" class="nav-icon {% if request.url.path.startswith('/history') %}active{% endif %}">📚 <span class="nav-label">History</span></a></li>
+                <li><a href="/sources" class="nav-icon {% if request.url.path.startswith('/sources') %}active{% endif %}">📡 <span class="nav-label">Sources</span></a></li>
+                <li><a href="/admin" class="nav-icon" title="Admin Panel">⚙️</a></li>
+            </ul>
+            <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">☀️</button>
+        </div>
     </nav>
 
     <main class="container">
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="container">
-        <hr>
-        <small>
-            RSS Digest — Personal news aggregator.
-            Built for one person, for life.
-            {% if digest %}Digest for {{ today_pretty }}{% endif %}
-        </small>
+    <footer class="app-footer">
+        RSS Digest — Personal news aggregator. Built for one person, for life.
     </footer>
+
+    <script>
+    // Dark mode toggle with localStorage
+    (function() {
+        const toggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+
+        // Load saved theme
+        const saved = localStorage.getItem('theme');
+        if (saved === 'dark') {
+            html.setAttribute('data-theme', 'dark');
+            toggle.textContent = '🌙';
+        }
+
+        toggle.addEventListener('click', () => {
+            const isDark = html.getAttribute('data-theme') === 'dark';
+            if (isDark) {
+                html.removeAttribute('data-theme');
+                toggle.textContent = '☀️';
+                localStorage.setItem('theme', 'light');
+            } else {
+                html.setAttribute('data-theme', 'dark');
+                toggle.textContent = '🌙';
+                localStorage.setItem('theme', 'dark');
+            }
+        });
+    })();
+    </script>
 </body>
 </html>

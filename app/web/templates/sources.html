@@ -3,12 +3,15 @@
 
 {% block content %}
 
-<h1>📡 RSS Sources</h1>
+<h1 style="color:var(--ink);margin-bottom:0.25rem;">📡 RSS Sources</h1>
+<p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1.25rem;">
+    {{ sources|length }} sources configured
+    {% if opml_path %}<code style="font-size:0.8rem;">({{ opml_path }})</code>{% endif %}
+</p>
 
 {% if sources %}
-<p><small>{{ sources|length }} sources configured</small></p>
-
-<table class="striped">
+<div class="card" style="padding:0;overflow:hidden;">
+<table class="sources-table">
     <thead>
         <tr>
             <th>Name</th>
@@ -26,7 +29,7 @@
                 <br><small><a href="{{ s.site_url }}" target="_blank" rel="noopener">{{ s.site_url[:60] }}</a></small>
                 {% endif %}
             </td>
-            <td>{{ s.category or '—' }}</td>
+            <td><span class="source-badge {{ s.category|lower|replace(' ', '-')|replace('&', '') if s.category else '' }}">{{ s.category or '—' }}</span></td>
             <td>
                 {% if s.is_active %}
                 <span class="badge badge-active">Active</span>
@@ -38,23 +41,21 @@
                 {% if s.last_fetched_at %}
                 {{ s.last_fetched_at[:16] }}
                 {% else %}
-                Never
+                <span style="color:var(--text-muted);">Never</span>
                 {% endif %}
             </td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+</div>
 {% else %}
-<article>
-    <div style="text-align: center; padding: 2rem;">
-        <h3>No sources configured</h3>
-        <p class="text-muted">
-            Place your OPML file at <code>{{ opml_path }}</code>.
-            <br>The scraper will import feeds from it on next run.
-        </p>
-    </div>
-</article>
+<div class="empty-state">
+    <div class="empty-state-icon">📡</div>
+    <h3>No sources configured</h3>
+    <p>Place your OPML file at <code>{{ opml_path }}</code>.</p>
+    <p style="font-size:0.85rem;">The scraper will import feeds from it on next run.</p>
+</div>
 {% endif %}
 
 {% endblock %}

@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     deepseek_api_key: str = ""
     llm_provider: str = "gemini"  # "gemini", "groq", or "deepseek"
+    gemini_model: str = "gemma-4-31b-it"  # Model name for Gemini (e.g. gemma-4-31b-it, gemini-2.5-flash)
 
     # Email (optional)
     gmail_user: str = ""

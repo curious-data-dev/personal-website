@@ -1,38 +1,40 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login — RSS Digest</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <main class="container" style="max-width: 400px; margin-top: 10vh;">
-        <article>
-            <header>
-                <h1>📰 RSS Digest</h1>
-                <p>Sign in to manage</p>
-            </header>
+    <main style="max-width: 380px; margin: 12vh auto; padding: 1rem;">
+        <div class="card" style="padding:2rem;">
+            <div style="text-align:center;margin-bottom:1.5rem;">
+                <span style="font-size:2rem;">📰</span>
+                <h1 style="font-size:1.3rem;margin:0.5rem 0 0.25rem;color:var(--ink);">RSS Digest</h1>
+                <p style="color:var(--text-muted);font-size:0.88rem;">Sign in to manage</p>
+            </div>
 
             {% if error %}
-            <p class="error-box">{{ error }}</p>
+            <div class="error-box">{{ error }}</div>
             {% endif %}
 
             <form method="post" action="/login">
-                <fieldset>
-                    <label>
+                <fieldset style="border:none;padding:0;margin:0;">
+                    <label style="display:block;margin-bottom:0.75rem;font-size:0.85rem;font-weight:500;">
                         Username
-                        <input type="text" name="username" placeholder="Username" required autofocus>
+                        <input type="text" name="username" placeholder="Username" required autofocus
+                               style="width:100%;padding:0.55rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9rem;margin-top:0.2rem;font-family:var(--font-sans);background:var(--bg);color:var(--text);">
                     </label>
-                    <label>
+                    <label style="display:block;margin-bottom:1rem;font-size:0.85rem;font-weight:500;">
                         Password
-                        <input type="password" name="password" placeholder="Password" required>
+                        <input type="password" name="password" placeholder="Password" required
+                               style="width:100%;padding:0.55rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9rem;margin-top:0.2rem;font-family:var(--font-sans);background:var(--bg);color:var(--text);">
                     </label>
                 </fieldset>
-                <button type="submit">Sign In</button>
+                <button type="submit" style="width:100%;padding:0.6rem;background:var(--ink);color:#fff;border:none;border-radius:var(--radius-sm);font-size:0.9rem;font-weight:600;cursor:pointer;font-family:var(--font-sans);">Sign In</button>
             </form>
-        </article>
+        </div>
     </main>
 </body>
 </html>
