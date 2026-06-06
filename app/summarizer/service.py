@@ -84,13 +84,22 @@ def run_summarization() -> dict:
 
         # 2. Generate daily digest if we have summarized articles
         if stats["articles_processed"] > 0:
-            today_str = _today_ist_str()
-            try:
-                _generate_daily_digest(conn, today_str)
-                conn.commit()
-                stats["digest_generated"] = True
-            except Exception as e:
-                logger.error(f"Failed to generate daily digest: {e}")
+            # Generate digests for all affected dates (not just today)
+            dates = conn.execute(
+                "SELECT DISTINCT date(fetched_at) as d FROM articles "
+                "WHERE status = 'summarized' AND summary_text != '' "
+                "ORDER BY d"
+            ).fetchall()
+            for row in dates:
+                date_str = row["d"]
+                if date_str:
+                    try:
+                        _generate_daily_digest(conn, date_str)
+                        conn.commit()
+                        stats["digest_generated"] = True
+                        logger.info(f"Digest generated for {date_str}")
+                    except Exception as e:
+                        logger.error(f"Failed to generate digest for {date_str}: {e}")
 
         return stats
 

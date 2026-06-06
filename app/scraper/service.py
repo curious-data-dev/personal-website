@@ -111,6 +111,8 @@ def run_scrape(
                         raw_text=raw_text or entry.get("snippet", ""),
                         author=entry.get("author", ""),
                         published_at=entry.get("published"),
+                        # When using custom date range, use the article's real publish date
+                        fetched_at=entry.get("published") if (start_date or end_date) else None,
                         status="raw",
                     )
 

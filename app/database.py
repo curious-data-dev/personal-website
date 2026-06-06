@@ -160,8 +160,8 @@ def insert_article(conn: sqlite3.Connection, **kwargs) -> int | None:
     try:
         cur = conn.execute(
             """INSERT INTO articles
-               (source_id, url, title, snippet, raw_text, author, published_at, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (source_id, url, title, snippet, raw_text, author, published_at, fetched_at, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 kwargs.get("source_id"),
                 kwargs["url"],
@@ -170,12 +170,12 @@ def insert_article(conn: sqlite3.Connection, **kwargs) -> int | None:
                 kwargs.get("raw_text", ""),
                 kwargs.get("author", ""),
                 kwargs.get("published_at"),
+                kwargs.get("fetched_at") or datetime.utcnow(),
                 kwargs.get("status", "raw"),
             ),
         )
         return cur.lastrowid
     except sqlite3.IntegrityError:
-        # URL already exists — dedup
         return None
 
 
