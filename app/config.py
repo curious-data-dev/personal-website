@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     # LLM
     gemini_api_key: str = ""
     groq_api_key: str = ""
-    llm_provider: str = "gemini"  # "gemini" or "groq"
+    deepseek_api_key: str = ""
+    llm_provider: str = "gemini"  # "gemini", "groq", or "deepseek"
 
     # Email (optional)
     gmail_user: str = ""

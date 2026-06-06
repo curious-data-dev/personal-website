@@ -1,16 +1,19 @@
-"""LLM clients with exponential-backoff retry logic.
+"""LLM clients with exponential-backoff retry logic and provider fallback.
 
-Supports two providers:
-- Gemini (via google-genai SDK) — free tier: 15 RPM, 1500 RPD
-- Groq (via groq SDK) — free tier: generous limits, fast inference
+Supported providers (tried in order):
+- Gemini (google-genai SDK) — free tier: 15 RPM, 1500 RPD
+- Groq (groq SDK) — free tier: generous limits, fast inference
+- DeepSeek (OpenAI-compatible API) — free tier: 500 req/day
 
-Both are tried with up to 5 retries on rate-limit (429) and server (500) errors.
+Fallback chain: primary → next available → next available
+Each provider gets up to 5 retries with exponential backoff.
 """
 
 import logging
 import time
 from typing import Optional
 
+import httpx
 from google import genai
 from groq import Groq
 
@@ -21,76 +24,96 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 5
 BASE_DELAY = 2  # seconds → exponential: 2, 4, 8, 16, 32
 
+# Ordered fallback chain — all available providers
+_ALL_PROVIDERS = ["gemini", "groq", "deepseek"]
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
 def call_llm(prompt: str, provider: Optional[str] = None) -> str:
-    """Call the configured LLM with exponential backoff and provider fallback.
-
-    If the primary provider fails after all retries, automatically falls back
-    to the other provider (Gemini ↔ Groq).
+    """Call LLM with retries, falling back through Gemini → Groq → DeepSeek.
 
     Args:
         prompt: The prompt to send.
-        provider: Override the default provider ("gemini" or "groq").
+        provider: Override the default (\"gemini\", \"groq\", or \"deepseek\").
 
     Returns:
         The LLM's response text.
 
     Raises:
-        RuntimeError: After both providers are exhausted.
+        RuntimeError: After all providers are exhausted.
     """
+    # Build the fallback chain: primary first, then the rest
     primary = provider or settings.llm_provider
-    fallback = "groq" if primary == "gemini" else "gemini"
+    chain = [primary] + [p for p in _ALL_PROVIDERS if p != primary]
 
-    for provider_name in (primary, fallback):
-        # Skip fallback if no API key configured
-        if provider_name == "gemini" and not settings.gemini_api_key:
-            logger.warning("Skipping Gemini: no API key")
-            continue
-        if provider_name == "groq" and not settings.groq_api_key:
-            logger.warning("Skipping Groq: no API key")
+    tried: list[str] = []
+    for provider_name in chain:
+        if not _provider_configured(provider_name):
+            logger.debug(f"Skipping {provider_name}: no API key configured")
             continue
 
-        logger.info(f"Using provider: {provider_name}")
+        tried.append(provider_name)
+        logger.info(f"Trying provider: {provider_name}")
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                if provider_name == "gemini":
-                    return _call_gemini(prompt)
-                elif provider_name == "groq":
-                    return _call_groq(prompt)
-            except Exception as e:
-                error_str = str(e).lower()
-                is_retryable = any(
-                    code in error_str
-                    for code in ("429", "500", "503", "rate", "overloaded", "timeout")
-                )
-                is_quota_exhausted = "quota" in error_str and "limit: 0" in error_str
-
-                if is_quota_exhausted:
-                    # Daily quota completely exhausted — skip retries, go to fallback
-                    logger.warning(f"{provider_name} daily quota exhausted, falling back")
-                    break
-
-                if is_retryable and attempt < MAX_RETRIES - 1:
-                    delay = BASE_DELAY * (2 ** attempt)
-                    logger.warning(
-                        f"{provider_name} call failed (attempt {attempt + 1}/{MAX_RETRIES}), "
-                        f"retrying in {delay}s: {e}"
-                    )
-                    time.sleep(delay)
-                    continue
-
-                # Non-retryable error or out of attempts for this provider
-                logger.error(f"{provider_name} failed after {attempt + 1} attempt(s): {e}")
-                break  # Try fallback provider
+        try:
+            return _call_with_retry(provider_name, prompt)
+        except Exception:
+            logger.warning(f"{provider_name} failed, trying next provider...")
+            continue
 
     raise RuntimeError(
-        f"LLM call failed: both {primary} and {fallback} are exhausted"
+        f"All providers exhausted. Tried: {', '.join(tried) if tried else 'none'}"
     )
+
+
+def _call_with_retry(provider_name: str, prompt: str) -> str:
+    """Call a single provider with up to MAX_RETRIES attempts."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            if provider_name == "gemini":
+                return _call_gemini(prompt)
+            elif provider_name == "groq":
+                return _call_groq(prompt)
+            elif provider_name == "deepseek":
+                return _call_deepseek(prompt)
+        except Exception as e:
+            error_str = str(e).lower()
+            is_retryable = any(
+                code in error_str
+                for code in ("429", "500", "503", "rate", "overloaded", "timeout")
+            )
+            is_quota_exhausted = "quota" in error_str and "limit: 0" in error_str
+
+            if is_quota_exhausted:
+                logger.warning(f"{provider_name} daily quota exhausted, falling back")
+                raise  # Bubble up to try next provider
+
+            if is_retryable and attempt < MAX_RETRIES - 1:
+                delay = BASE_DELAY * (2**attempt)
+                logger.warning(
+                    f"{provider_name} attempt {attempt + 1}/{MAX_RETRIES} failed, "
+                    f"retrying in {delay}s"
+                )
+                time.sleep(delay)
+                continue
+
+            logger.error(f"{provider_name} failed after {attempt + 1} attempt(s)")
+            raise
+
+    raise RuntimeError(f"{provider_name}: all retries exhausted")
+
+
+def _provider_configured(provider_name: str) -> bool:
+    """Check if the provider has an API key configured."""
+    key_map = {
+        "gemini": settings.gemini_api_key,
+        "groq": settings.groq_api_key,
+        "deepseek": settings.deepseek_api_key,
+    }
+    return bool(key_map.get(provider_name))
 
 
 # ---------------------------------------------------------------------------
@@ -99,12 +122,10 @@ def call_llm(prompt: str, provider: Optional[str] = None) -> str:
 
 
 def _call_gemini(prompt: str) -> str:
-    """Call Gemini via the google-genai SDK v2.x."""
     if not settings.gemini_api_key:
         raise ValueError("GEMINI_API_KEY is not set")
 
     client = genai.Client(api_key=settings.gemini_api_key)
-
     response = client.models.generate_content(
         model="gemini-2.0-flash",
         contents=prompt,
@@ -116,11 +137,8 @@ def _call_gemini(prompt: str) -> str:
     )
 
     if not response.text:
-        # Check for safety blocks or empty response
         if response.prompt_feedback and response.prompt_feedback.block_reason:
-            raise RuntimeError(
-                f"Gemini blocked: {response.prompt_feedback.block_reason}"
-            )
+            raise RuntimeError(f"Gemini blocked: {response.prompt_feedback.block_reason}")
         raise RuntimeError("Gemini returned empty response")
 
     return response.text.strip()
@@ -132,13 +150,10 @@ def _call_gemini(prompt: str) -> str:
 
 
 def _call_groq(prompt: str) -> str:
-    """Call Groq via the groq SDK."""
     if not settings.groq_api_key:
         raise ValueError("GROQ_API_KEY is not set")
 
     client = Groq(api_key=settings.groq_api_key)
-
-    # Use llama-3.3-70b for high quality summaries on free tier
     completion = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
@@ -152,5 +167,42 @@ def _call_groq(prompt: str) -> str:
     content = completion.choices[0].message.content
     if not content:
         raise RuntimeError("Groq returned empty response")
+
+    return content.strip()
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek (OpenAI-compatible API)
+# ---------------------------------------------------------------------------
+
+
+def _call_deepseek(prompt: str) -> str:
+    if not settings.deepseek_api_key:
+        raise ValueError("DEEPSEEK_API_KEY is not set")
+
+    with httpx.Client(timeout=60) as client:
+        response = client.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.deepseek_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.5,
+                "max_tokens": 2048,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    choices = data.get("choices", [])
+    if not choices:
+        raise RuntimeError("DeepSeek returned no choices")
+
+    content = choices[0].get("message", {}).get("content", "")
+    if not content:
+        raise RuntimeError("DeepSeek returned empty response")
 
     return content.strip()
