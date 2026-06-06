@@ -25,7 +25,7 @@ MAX_RETRIES = 5
 BASE_DELAY = 2  # seconds → exponential: 2, 4, 8, 16, 32
 
 # Ordered fallback chain — all available providers
-_ALL_PROVIDERS = ["gemini", "groq", "deepseek"]
+_ALL_PROVIDERS = ["deepseek", "groq", "gemini"]
 
 # Usage tracking (in-memory, resets on restart)
 _usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "errors": 0}
@@ -140,7 +140,7 @@ def _call_gemini(prompt: str) -> str:
 
     client = genai.Client(api_key=settings.gemini_api_key)
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             temperature=0.5,
