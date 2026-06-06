@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# Install system deps for Playwright
+# Install system dependencies for Playwright Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
@@ -25,21 +25,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Playwright + Chromium
-RUN pip install --no-cache-dir playwright==1.45.0 \
-    && playwright install --with-deps chromium \
-    && playwright install-deps chromium
-
 WORKDIR /app
 
-# Install Python deps (cache layer)
+# Install Python dependencies (cached layer)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright browser (after pip installs playwright)
+RUN playwright install --with-deps chromium
 
 # Copy app code
 COPY . .
 
-# Ensure data directory exists
+# Ensure data directory
 RUN mkdir -p /app/data
 
 EXPOSE 8000
