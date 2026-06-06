@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS articles (
     fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status          TEXT    DEFAULT 'raw',
     chunk_count     INTEGER DEFAULT 0,
+    llm_provider    TEXT,
     error_message   TEXT
 );
 
@@ -202,13 +203,14 @@ def update_article_status(
 
 
 def update_article_summary(
-    conn: sqlite3.Connection, article_id: int, summary_text: str, chunk_count: int = 0
+    conn: sqlite3.Connection, article_id: int, summary_text: str,
+    chunk_count: int = 0, llm_provider: str = ""
 ) -> None:
     conn.execute(
         """UPDATE articles
-           SET summary_text = ?, chunk_count = ?, status = 'summarized'
+           SET summary_text = ?, chunk_count = ?, llm_provider = ?, status = 'summarized'
            WHERE id = ?""",
-        (summary_text, chunk_count, article_id),
+        (summary_text, chunk_count, llm_provider, article_id),
     )
 
 

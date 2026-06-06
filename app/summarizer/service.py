@@ -24,7 +24,7 @@ from app.database import (
     link_articles_to_digest,
 )
 from app.summarizer.chunker import chunk_article
-from app.summarizer.llm import call_llm
+from app.summarizer.llm import call_llm, get_last_provider
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +80,9 @@ def run_summarization(regenerate_dates: list[str] | None = None) -> dict:
                 conn.commit()
 
                 logger.info(f"Summarizing article #{article_id}: {title[:80]}")
-                summary, chunk_count = _summarize_article(raw_text)
+                summary, chunk_count, provider = _summarize_article(raw_text)
 
-                update_article_summary(conn, article_id, summary, chunk_count)
+                update_article_summary(conn, article_id, summary, chunk_count, provider)
                 stats["articles_processed"] += 1
                 logger.info(f"Summarized article #{article_id} ({chunk_count} chunks)")
 
@@ -116,10 +116,10 @@ def run_summarization(regenerate_dates: list[str] | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _summarize_article(raw_text: str) -> tuple[str, int]:
+def _summarize_article(raw_text: str) -> tuple[str, int, str]:
     """Summarize a single article using map-reduce if it's long.
 
-    Returns (summary_text, chunk_count).
+    Returns (summary_text, chunk_count, provider_used).
     """
     # Truncate overly long articles
     if len(raw_text) > settings.max_article_chars:
@@ -128,16 +128,16 @@ def _summarize_article(raw_text: str) -> tuple[str, int]:
     # If short enough, summarize directly
     if len(raw_text) <= settings.chunk_size:
         summary = call_llm(_SINGLE_SUMMARY_PROMPT.format(text=raw_text))
-        return summary, 1
+        return summary, 1, get_last_provider()
 
     # Map-Reduce: chunk → parallel summarize → synthesize
     chunks = chunk_article(raw_text)
     if not chunks:
-        return "", 0
+        return "", 0, ""
 
     if len(chunks) == 1:
         summary = call_llm(_SINGLE_SUMMARY_PROMPT.format(text=chunks[0]))
-        return summary, 1
+        return summary, 1, get_last_provider()
 
     # MAP phase: summarize each chunk in parallel
     sub_summaries: list[str] = []
@@ -155,13 +155,13 @@ def _summarize_article(raw_text: str) -> tuple[str, int]:
                 sub_summaries.append("[chunk failed to summarize]")
 
     if not sub_summaries:
-        return "", 0
+        return "", 0, ""
 
     # REDUCE phase: synthesize sub-summaries into one cohesive summary
     combined = "\n\n---\n\n".join(sub_summaries)
     final_summary = call_llm(_REDUCE_PROMPT.format(sub_summaries=combined))
 
-    return final_summary, len(chunks)
+    return final_summary, len(chunks), get_last_provider()
 
 
 # ---------------------------------------------------------------------------

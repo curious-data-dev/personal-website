@@ -109,11 +109,23 @@ async function loadStatus() {
         // LLM stats
         const llm = data.llm || {};
         let html = '<p>';
-        html += '<strong>Calls:</strong> ' + (llm.calls || 0) + ' &nbsp;|&nbsp; ';
-        html += '<strong>Tokens in:</strong> ~' + (llm.tokens_in || 0).toLocaleString() + ' &nbsp;|&nbsp; ';
-        html += '<strong>Tokens out:</strong> ~' + (llm.tokens_out || 0).toLocaleString() + ' &nbsp;|&nbsp; ';
+        html += '<strong>Calls:</strong> ' + (llm.calls || 0) + ' | ';
+        html += '<strong>Tokens in:</strong> ~' + (llm.tokens_in || 0).toLocaleString() + ' | ';
+        html += '<strong>Tokens out:</strong> ~' + (llm.tokens_out || 0).toLocaleString() + ' | ';
         html += '<strong>Errors:</strong> ' + (llm.errors || 0);
         html += '</p>';
+
+        // Provider distribution
+        const providers = data.providers || {};
+        if (Object.keys(providers).length > 0) {
+            html += '<p><strong>Provider Usage:</strong> ';
+            const parts = [];
+            for (const [p, c] of Object.entries(providers)) {
+                parts.push(p + ': ' + c);
+            }
+            html += parts.join(' | ');
+            html += '</p>';
+        }
 
         // Per-date table
         const dates = data.dates || [];

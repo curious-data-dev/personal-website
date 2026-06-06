@@ -308,9 +308,19 @@ async def admin_status(request: Request):
         from app.summarizer.llm import get_usage_stats
         llm_stats = get_usage_stats()
 
+        # Provider distribution
+        provider_rows = conn.execute("""
+            SELECT llm_provider, COUNT(*) as cnt
+            FROM articles
+            WHERE status = 'summarized' AND llm_provider != ''
+            GROUP BY llm_provider
+        """).fetchall()
+        providers = {r["llm_provider"]: r["cnt"] for r in provider_rows}
+
         return JSONResponse({
             "dates": dates,
             "llm": llm_stats,
+            "providers": providers,
         })
     finally:
         conn.close()

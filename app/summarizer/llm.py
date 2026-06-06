@@ -29,11 +29,17 @@ _ALL_PROVIDERS = ["deepseek", "groq", "gemini"]
 
 # Usage tracking (in-memory, resets on restart)
 _usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "errors": 0}
+_last_provider: str = ""
 
 
 def get_usage_stats() -> dict:
     """Return current LLM usage statistics."""
     return dict(_usage)
+
+
+def get_last_provider() -> str:
+    """Return the last successfully used provider."""
+    return _last_provider
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -72,6 +78,7 @@ def call_llm(prompt: str, provider: Optional[str] = None) -> str:
             _usage["calls"] += 1
             _usage["tokens_in"] += len(prompt) // 4
             _usage["tokens_out"] += len(result) // 4
+            _last_provider = provider_name
             return result
         except Exception:
             logger.warning(f"{provider_name} failed, trying next provider...")
