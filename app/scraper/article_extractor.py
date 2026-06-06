@@ -6,6 +6,7 @@ Strategy:
 """
 
 import asyncio
+import concurrent.futures
 import logging
 from typing import Optional
 
@@ -20,8 +21,15 @@ PLAYWRIGHT_TIMEOUT_MS = 30000
 
 
 def extract_article_text(url: str) -> Optional[str]:
-    """Synchronous entry point. Calls async path internally."""
-    return asyncio.run(_extract_article_text_async(url))
+    """Extract article text. Works in both sync and async contexts."""
+    try:
+        loop = asyncio.get_running_loop()
+        # Already inside an event loop (FastAPI) — run in a separate thread
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            return pool.submit(asyncio.run, _extract_article_text_async(url)).result()
+    except RuntimeError:
+        # No running loop — safe to use asyncio.run()
+        return asyncio.run(_extract_article_text_async(url))
 
 
 async def _extract_article_text_async(url: str) -> Optional[str]:
