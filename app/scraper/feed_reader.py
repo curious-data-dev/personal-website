@@ -64,13 +64,24 @@ def _walk_outlines(
 # ---------------------------------------------------------------------------
 
 
-def fetch_feed_entries(feed_url: str) -> list[dict[str, Any]]:
-    """Fetch recent entries from a single RSS/Atom feed.
+def fetch_feed_entries(
+    feed_url: str,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch entries from a single RSS/Atom feed.
 
-    Filters to entries published within `settings.lookback_hours`.
-    Returns a list of entry dicts.
+    Args:
+        feed_url: The RSS feed URL.
+        since: Only return entries published after this time (UTC).
+               Defaults to settings.lookback_hours ago.
+        until: Only return entries published before this time (UTC).
+               Defaults to now.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.lookback_hours)
+    if since is None:
+        since = datetime.now(timezone.utc) - timedelta(hours=settings.lookback_hours)
+    if until is None:
+        until = datetime.now(timezone.utc)
 
     parsed = feedparser.parse(feed_url)
 
@@ -81,8 +92,10 @@ def fetch_feed_entries(feed_url: str) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for entry in parsed.entries:
         published = _parse_published(entry)
-        if published and published < cutoff:
-            continue  # Too old
+        if published is None:
+            continue  # Can't filter without a date — skip
+        if published < since or published > until:
+            continue  # Outside the requested range
 
         entries.append({
             "title": entry.get("title", "Untitled"),
@@ -92,7 +105,7 @@ def fetch_feed_entries(feed_url: str) -> list[dict[str, Any]]:
             "published": published,
         })
 
-    logger.debug(f"Fetched {len(entries)} recent entries from {feed_url}")
+    logger.debug(f"Fetched {len(entries)} entries from {feed_url} ({since.date()} → {until.date()})")
     return entries
 
 

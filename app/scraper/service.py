@@ -1,7 +1,7 @@
 """Scraper service — orchestrates OPML → RSS fetch → extract → store."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.config import settings
 from app.database import (
@@ -20,8 +20,15 @@ from app.scraper.article_extractor import extract_article_text
 logger = logging.getLogger(__name__)
 
 
-def run_scrape() -> dict:
+def run_scrape(
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict:
     """Main entry point. Called by scheduler or manual trigger.
+
+    Args:
+        start_date: ISO date string (YYYY-MM-DD) — only include articles from this date onward.
+        end_date: ISO date string (YYYY-MM-DD) — only include articles up to this date.
 
     Returns a summary dict with scrape statistics.
     """
@@ -34,6 +41,22 @@ def run_scrape() -> dict:
         "articles_skipped": 0,
         "errors": [],
     }
+
+    # Parse date range
+    since: datetime | None = None
+    until: datetime | None = None
+    if start_date:
+        try:
+            since = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            logger.warning(f"Invalid start_date: {start_date}, ignoring")
+    if end_date:
+        try:
+            until = datetime.strptime(end_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=timezone.utc
+            )
+        except ValueError:
+            logger.warning(f"Invalid end_date: {end_date}, ignoring")
 
     log_id = start_scrape_log(conn)
 
@@ -64,7 +87,7 @@ def run_scrape() -> dict:
 
             try:
                 logger.info(f"Fetching feed: {source_name} ({feed_url})")
-                entries = fetch_feed_entries(feed_url)
+                entries = fetch_feed_entries(feed_url, since=since, until=until)
 
                 for entry in entries:
                     url = entry["url"]

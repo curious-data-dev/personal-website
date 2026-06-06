@@ -229,12 +229,20 @@ async def admin_panel(request: Request):
 
 @router.post("/admin/scrape")
 async def trigger_scrape(request: Request):
-    """Manually trigger a scrape run."""
+    """Manually trigger a scrape run. Accepts optional date range in JSON body."""
     if not _check_session(request):
         raise HTTPException(status_code=401)
 
     try:
-        stats = run_scrape()
+        body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    except Exception:
+        body = {}
+
+    start_date = body.get("start_date") or None
+    end_date = body.get("end_date") or None
+
+    try:
+        stats = run_scrape(start_date=start_date, end_date=end_date)
         return JSONResponse({
             "ok": True,
             "stats": stats,
