@@ -267,6 +267,55 @@ async def trigger_summarize(request: Request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+@router.get("/admin/status")
+async def admin_status(request: Request):
+    """JSON endpoint showing per-date scrape/summarize/digest status."""
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+
+    conn = get_db()
+    try:
+        # Per-date article and digest status
+        rows = conn.execute("""
+            SELECT
+                date(a.fetched_at) as d,
+                COUNT(*) as total,
+                SUM(CASE WHEN a.status = 'raw' THEN 1 ELSE 0 END) as raw_count,
+                SUM(CASE WHEN a.status = 'summarized' THEN 1 ELSE 0 END) as summarized,
+                SUM(CASE WHEN a.status = 'failed' THEN 1 ELSE 0 END) as failed,
+                SUM(CASE WHEN a.status = 'summarizing' THEN 1 ELSE 0 END) as in_progress,
+                dg.id IS NOT NULL as has_digest
+            FROM articles a
+            LEFT JOIN daily_digests dg ON date(a.fetched_at) = dg.date
+            GROUP BY d
+            ORDER BY d DESC
+            LIMIT 60
+        """).fetchall()
+
+        dates = []
+        for r in rows:
+            dates.append({
+                "date": r["d"],
+                "total": r["total"],
+                "raw": r["raw_count"],
+                "summarized": r["summarized"],
+                "failed": r["failed"],
+                "in_progress": r["in_progress"],
+                "has_digest": bool(r["has_digest"]),
+            })
+
+        # LLM usage stats
+        from app.summarizer.llm import get_usage_stats
+        llm_stats = get_usage_stats()
+
+        return JSONResponse({
+            "dates": dates,
+            "llm": llm_stats,
+        })
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

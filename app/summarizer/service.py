@@ -66,6 +66,9 @@ def run_summarization(regenerate_dates: list[str] | None = None) -> dict:
                     affected_dates.add(fetched[:10])
                 else:
                     affected_dates.add(fetched.strftime("%Y-%m-%d"))
+            else:
+                # Fallback: use today in IST
+                affected_dates.add(_today_ist_str())
 
             if not raw_text or len(raw_text) < 100:
                 update_article_status(conn, article_id, "failed", "Insufficient content")

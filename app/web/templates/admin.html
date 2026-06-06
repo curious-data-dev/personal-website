@@ -5,6 +5,7 @@
 
 <h1>Admin Panel</h1>
 
+<!-- Scrape Section -->
 <article>
     <header><h3>Scraping</h3></header>
     <p>Fetch new articles from all configured RSS feeds.</p>
@@ -24,23 +25,24 @@
     <pre id="scrape-result" style="display:none; margin-top: 1rem;"></pre>
 </article>
 
+<!-- Summarize Section -->
 <article>
     <header><h3>Summarization</h3></header>
-    <p>Summarize all raw articles and generate today's daily digest.</p>
+    <p>Summarize all raw articles and generate daily digests.</p>
     <button id="btn-summarize" class="secondary" onclick="triggerSummarize()">Run Summarization Now</button>
     <pre id="summarize-result" style="display:none; margin-top: 1rem;"></pre>
 </article>
 
+<!-- Status Dashboard -->
 <article>
-    <header><h3>Quick Links</h3></header>
-    <ul>
-        <li><a href="/health">Health check (JSON)</a></li>
-        <li><a href="/">View today's digest</a></li>
-        <li><a href="/history">Browse history</a></li>
-    </ul>
+    <header><h3>Status Overview</h3></header>
+    <div id="status-dashboard">
+        <p>Loading...</p>
+    </div>
 </article>
 
 <script>
+// --- Scrape ---
 async function triggerScrape() {
     const btn = document.getElementById('btn-scrape');
     const pre = document.getElementById('scrape-result');
@@ -64,6 +66,7 @@ async function triggerScrape() {
         const data = await res.json();
         pre.style.display = 'block';
         pre.textContent = JSON.stringify(data, null, 2);
+        loadStatus(); // Refresh dashboard
     } catch (e) {
         pre.style.display = 'block';
         pre.textContent = 'Error: ' + e.message;
@@ -73,6 +76,7 @@ async function triggerScrape() {
     btn.textContent = 'Run Scrape Now';
 }
 
+// --- Summarize ---
 async function triggerSummarize() {
     const btn = document.getElementById('btn-summarize');
     const pre = document.getElementById('summarize-result');
@@ -85,6 +89,7 @@ async function triggerSummarize() {
         const data = await res.json();
         pre.style.display = 'block';
         pre.textContent = JSON.stringify(data, null, 2);
+        loadStatus(); // Refresh dashboard
     } catch (e) {
         pre.style.display = 'block';
         pre.textContent = 'Error: ' + e.message;
@@ -93,6 +98,55 @@ async function triggerSummarize() {
     btn.disabled = false;
     btn.textContent = 'Run Summarization Now';
 }
+
+// --- Status Dashboard ---
+async function loadStatus() {
+    const el = document.getElementById('status-dashboard');
+    try {
+        const res = await fetch('/admin/status');
+        const data = await res.json();
+
+        // LLM stats
+        const llm = data.llm || {};
+        let html = '<p>';
+        html += '<strong>Calls:</strong> ' + (llm.calls || 0) + ' &nbsp;|&nbsp; ';
+        html += '<strong>Tokens in:</strong> ~' + (llm.tokens_in || 0).toLocaleString() + ' &nbsp;|&nbsp; ';
+        html += '<strong>Tokens out:</strong> ~' + (llm.tokens_out || 0).toLocaleString() + ' &nbsp;|&nbsp; ';
+        html += '<strong>Errors:</strong> ' + (llm.errors || 0);
+        html += '</p>';
+
+        // Per-date table
+        const dates = data.dates || [];
+        if (dates.length === 0) {
+            html += '<p class="text-muted">No articles scraped yet.</p>';
+        } else {
+            html += '<table class="striped"><thead><tr>';
+            html += '<th>Date</th><th>Total</th><th>Raw</th><th>Summarized</th><th>Failed</th><th>Digest</th>';
+            html += '</tr></thead><tbody>';
+
+            for (const d of dates) {
+                const digestIcon = d.has_digest ? 'OK' : '-';
+                html += '<tr>';
+                html += '<td><a href="/digest/' + d.date + '">' + d.date + '</a></td>';
+                html += '<td>' + d.total + '</td>';
+                html += '<td>' + d.raw + '</td>';
+                html += '<td>' + d.summarized + '</td>';
+                html += '<td>' + d.failed + '</td>';
+                html += '<td>' + digestIcon + '</td>';
+                html += '</tr>';
+            }
+
+            html += '</tbody></table>';
+        }
+
+        el.innerHTML = html;
+    } catch (e) {
+        el.innerHTML = '<p class="error-box">Failed to load: ' + e.message + '</p>';
+    }
+}
+
+// Load on page open
+loadStatus();
 </script>
 
 {% endblock %}

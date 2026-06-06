@@ -27,6 +27,14 @@ BASE_DELAY = 2  # seconds → exponential: 2, 4, 8, 16, 32
 # Ordered fallback chain — all available providers
 _ALL_PROVIDERS = ["gemini", "groq", "deepseek"]
 
+# Usage tracking (in-memory, resets on restart)
+_usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "errors": 0}
+
+
+def get_usage_stats() -> dict:
+    """Return current LLM usage statistics."""
+    return dict(_usage)
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -59,7 +67,12 @@ def call_llm(prompt: str, provider: Optional[str] = None) -> str:
         logger.info(f"Trying provider: {provider_name}")
 
         try:
-            return _call_with_retry(provider_name, prompt)
+            result = _call_with_retry(provider_name, prompt)
+            # Track usage (~4 chars per token estimate)
+            _usage["calls"] += 1
+            _usage["tokens_in"] += len(prompt) // 4
+            _usage["tokens_out"] += len(result) // 4
+            return result
         except Exception:
             logger.warning(f"{provider_name} failed, trying next provider...")
             continue
