@@ -147,10 +147,12 @@ async function loadStatus() {
                 html += '<td>' + d.failed + '</td>';
                 html += '<td>' + digestIcon + '</td>';
                 html += '<td>';
-                if (jobMsg) {
-                    html += '<span style="font-size:0.72rem;color:var(--ink);">' + jobMsg + '</span>';
-                } else if (canRegen) {
-                    html += '<button onclick="regenDigest(\'' + d.date + '\', this)" style="padding:0.15rem 0.5rem;font-size:0.72rem;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);">↻ Regen</button>';
+                if (canRegen) {
+                    if (jobMsg && !jobMsg.startsWith('✅') && !jobMsg.startsWith('❌')) {
+                        html += '<span style="font-size:0.72rem;color:var(--ink);">' + jobMsg + '</span>';
+                    } else {
+                        html += '<button onclick="regenDigest(\'' + d.date + '\', this)" style="padding:0.15rem 0.5rem;font-size:0.72rem;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);">↻ Regen</button>';
+                    }
                 }
                 html += '</td>';
                 html += '</tr>';
@@ -175,6 +177,7 @@ async function regenDigest(dateStr, btn) {
         const data = await res.json();
         if (data.ok) {
             // Start polling for live status
+            let seenDone = false;
             const interval = setInterval(async () => {
                 try {
                     const sr = await fetch('/admin/status');
@@ -182,19 +185,38 @@ async function regenDigest(dateStr, btn) {
                     const jobMsg = (sd.jobs || {})[dateStr];
                     if (jobMsg) {
                         btn.textContent = jobMsg;
-                        btn.style.color = jobMsg.startsWith('✅') ? '#155724' : 'var(--ink)';
+                        btn.style.color = jobMsg.startsWith('✅') ? '#155724' : jobMsg.startsWith('❌') ? '#721c24' : 'var(--ink)';
                         if (jobMsg.startsWith('✅') || jobMsg.startsWith('❌')) {
+                            seenDone = true;
                             clearInterval(interval);
+                            // Wait 3s then restore button
                             setTimeout(() => {
                                 btn.textContent = '↻ Regen';
                                 btn.disabled = false;
                                 btn.style.color = 'var(--text-muted)';
                                 loadStatus();
-                            }, 5000);
+                            }, 3000);
                         }
+                    } else if (seenDone) {
+                        // Status was cleared (by auto-cleanup), restore button
+                        clearInterval(interval);
+                        btn.textContent = '↻ Regen';
+                        btn.disabled = false;
+                        btn.style.color = 'var(--text-muted)';
+                        loadStatus();
                     }
                 } catch { clearInterval(interval); }
             }, 1500);
+            // Safety timeout: restore button after 2 minutes regardless
+            setTimeout(() => {
+                if (btn.disabled) {
+                    clearInterval(interval);
+                    btn.textContent = '↻ Regen';
+                    btn.disabled = false;
+                    btn.style.color = 'var(--text-muted)';
+                    loadStatus();
+                }
+            }, 120000);
         } else {
             btn.textContent = '✗';
             btn.disabled = false;

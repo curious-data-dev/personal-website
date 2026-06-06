@@ -38,7 +38,11 @@ templates = Jinja2Templates(directory="app/web/templates")
 # ---------------------------------------------------------------------------
 
 def _render_inline(text: str) -> str:
-    """Render inline markdown: **bold**, *italic*."""
+    """Render inline markdown: **bold**, *italic*, [text](url) and [[text]](url) links."""
+    # Double-bracket links: [[text]](url) — keeps brackets visible
+    text = re.sub(r'\[\[(.+?)\]\]\((.+?)\)', r'<a href="\2" target="_blank" rel="noopener">[\1]</a>', text)
+    # Standard markdown links: [text](url)
+    text = re.sub(r'(?<!\[)\[(.+?)\]\((.+?)\)', r'<a href="\2" target="_blank" rel="noopener">\1</a>', text)
     text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
     text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
     return text
@@ -408,6 +412,10 @@ async def regenerate_digest(request: Request, date_str: str):
             logger.error(f"Digest regeneration failed for {date_str}: {e}")
         finally:
             conn.close()
+        # Auto-clear status after 10s so the regen button reappears
+        import time
+        time.sleep(10)
+        _clear_job_status(date_str)
 
     threading.Thread(target=_run, daemon=True).start()
 

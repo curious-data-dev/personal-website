@@ -192,23 +192,53 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
 
     if on_progress: on_progress(f"Building prompt from {len(articles)} articles...")
 
-    # Build a digest from article summaries
+    # Build numbered source list with URLs for citation footnotes & hyperlinks
+    source_list_lines = []
+    ref_urls = {}  # ref_number -> url
+    for i, a in enumerate(articles, start=1):
+        source_name = a.get('source_name', 'Unknown')
+        title = a['title']
+        url = a.get('url', '#')
+        source_list_lines.append(f"[{i}] [{source_name} — {title}]({url})")
+        ref_urls[i] = url
+
+    # Build article summaries with reference numbers
     article_summaries = "\n\n---\n\n".join(
-        f"SOURCE: {a.get('source_name', 'Unknown')} | {a.get('source_category', '')}\n"
+        f"[REF {i}] SOURCE: {a.get('source_name', 'Unknown')} | {a.get('source_category', '')}\n"
         f"TITLE: {a['title']}\n"
         f"SUMMARY: {a['summary_text']}"
-        for a in articles
+        for i, a in enumerate(articles, start=1)
     )
+
+    source_footnote = "\n".join(source_list_lines)
 
     if on_progress: on_progress("Sending to LLM...")
 
     digest_text = call_llm(
-        _DIGEST_PROMPT.format(date=date_str, article_summaries=article_summaries),
+        _DIGEST_PROMPT.format(
+            date=date_str,
+            article_summaries=article_summaries,
+        ),
         provider=provider,
         model=model,
         max_tokens=8192,
         on_progress=on_progress,
     )
+
+    # Convert in-text [N] and [N][M] tags to clickable markdown links
+    import re
+    def _make_links(m):
+        nums = re.findall(r'\d+', m.group(0))
+        parts = []
+        for n_str in nums:
+            n = int(n_str)
+            url = ref_urls.get(n, '#')
+            parts.append(f"[[{n}]]({url})")
+        return ''.join(parts)
+    digest_text = re.sub(r'(?:\[\d+\])+', _make_links, digest_text)
+
+    # Append source footnote with clickable links
+    digest_text += f"\n\n## 📚 Sources\n\n{source_footnote}"
 
     if on_progress: on_progress("LLM responded, saving...")
 
@@ -241,11 +271,13 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
 # Prompt Templates
 # ---------------------------------------------------------------------------
 
-_SINGLE_SUMMARY_PROMPT = """You are a skilled news summarizer. Summarize the following article concisely.
+_SINGLE_SUMMARY_PROMPT = """You are a skilled news summarizer. Summarize the following article, preserving EVERY distinct story or news item it contains.
+
+CRITICAL: Your summary must retain all specific details — names of people and organizations, exact dates, numbers and statistics, and locations. Do not generalize or omit these. If the article covers multiple unrelated stories, include all of them.
 
 Guidelines:
-- 3-5 paragraphs maximum
-- Preserve all key facts, names, numbers, and dates
+- Cover every distinct story present in the article, even if some are brief
+- Preserve all key facts, names, numbers, and dates verbatim
 - Neutral, objective tone - no editorialising
 - Write in clear, simple English
 - Do NOT include phrases like "This article discusses" or "The author states"
@@ -255,12 +287,15 @@ ARTICLE:
 
 SUMMARY:"""
 
-_CHUNK_SUMMARY_PROMPT = """Summarize this excerpt from a longer article. Focus on:
-- Key facts and events mentioned
-- Important names, numbers, and dates
-- The main argument or development
+_CHUNK_SUMMARY_PROMPT = """Summarize this excerpt from a longer article. Your job is to capture everything — do not drop details that seem minor.
 
-Write 2-3 concise paragraphs. Do not editorialise.
+Capture:
+- Every key fact and event mentioned, including supporting details
+- All names of people, organizations, and places
+- All numbers, statistics, percentages, and exact dates
+- The main argument or development with its context
+
+Write a thorough summary. Do not editorialise.
 
 EXCERPT:
 {text}
@@ -270,10 +305,12 @@ SUMMARY:"""
 _REDUCE_PROMPT = """You are a news editor. Below are summaries of different sections of the same article.
 Synthesize them into ONE cohesive summary.
 
+CRITICAL: Do NOT drop stories or details during synthesis. If a sub-summary mentions a person's name, a date, a number, or a specific event, it MUST appear in your final summary. Only remove exact duplicate sentences — everything else stays.
+
 Guidelines:
-- Remove any redundancy or repetition across sections
-- Preserve ALL key facts, names, numbers, and dates
-- 4-6 paragraphs in chronological/logical order
+- Merge overlapping coverage of the same story, but keep all unique details from each sub-summary
+- Preserve ALL names, numbers, dates, and locations from every sub-summary
+- Organize in chronological/logical order
 - Neutral, objective tone
 - Do NOT mention that these were sub-summaries
 
@@ -284,13 +321,18 @@ SYNTHESIZED SUMMARY:"""
 
 _DIGEST_PROMPT = """You are a daily news editor. Synthesize the following article summaries into one cohesive daily digest for {date}.
 
-Guidelines:
-- Group related stories under Markdown section headings using `##` (e.g., "## 📰 Politics & Policy", "## 📈 Markets & Economy", "## 🌍 World News")
-- 2-3 paragraphs per section
-- Start with a 1-2 sentence "Today's Highlights" overview (use `##` heading for it too)
-- Preserve key facts, numbers, and names
-- Neutral, objective tone
-- End with a "## 💡 Key Takeaway" section using bullet points (`- `), 3-5 points
+SOURCE REFERENCES: Each article summary below is prefixed with a reference number like [REF 1], [REF 2], etc. You MUST tag EVERY sentence or paragraph in your digest with the reference number(s) of the article(s) it draws from. Place the tag at the END of each paragraph, like "[1]" or "[1][3]". Example: "GDP grew 7.7% this year, driven by manufacturing. [2]" Do NOT skip this step. Do NOT fabricate reference numbers.
+
+STEP 1 — Story Inventory: Before writing, mentally identify EVERY distinct news story across ALL article summaries. A story is any self-contained event with its own who, what, when, where. Count them. You must cover ALL of them — skipping one is an error. IMPORTANT: clarifications, denials, refutations, and security incident reports ARE stories too. Do not dismiss them as minor.
+
+STEP 2 — Write the Digest:
+- Start with `## Today's Highlights`: 2-3 sentences touching on the day's biggest developments.
+- Create `##` sections with emoji prefixes based on the actual news content (not pre-set categories). Each section must cover all stories assigned to it with adequate detail — at minimum one full paragraph per story.
+- CRITICAL — for each story, you MUST include: full names (e.g. "Rylen Anil" not "an ethical hacker"), exact dates ("June 2" not "recently"), specific numbers ("0.05%" not "a small amount"), and technical details ("read-only" storage, "cloud access logs analyzed"). Do NOT replace proper names with role descriptions. Do NOT omit names just because the person is not famous. Copy these details from the source summaries.
+- Tag EVERY paragraph with its source reference number(s) at the end, like this: "[1]" or "[1][3]". This is MANDATORY — do not emit any paragraph without a reference tag.
+- If a story has no related stories, give it its own section. A short dedicated section is better than compressing a detailed story into one sentence.
+- Neutral, objective tone. No editorialising.
+- End with `## 💡 Key Takeaway`: 5-6 bullet points (`- **Bold label:** explanation [ref]`), each MUST end with its source reference number(s).
 
 ARTICLE SUMMARIES:
 {article_summaries}
