@@ -38,16 +38,19 @@ MAX_CHUNK_WORKERS = 5
 MAX_ARTICLE_WORKERS = 3
 
 
-def run_summarization() -> dict:
-    """Summarize all raw articles, then generate today's daily digest.
+def run_summarization(regenerate_dates: list[str] | None = None) -> dict:
+    """Summarize all raw articles, then regenerate digests for affected dates.
 
-    Returns stats dict with counts.
+    Args:
+        regenerate_dates: If provided, only regenerate digests for these dates.
+                          If None, auto-detects dates from newly summarized articles.
     """
     conn = get_db()
     stats = {"articles_processed": 0, "articles_failed": 0, "digest_generated": False}
+    affected_dates: set[str] = set(regenerate_dates or [])
 
     try:
-        # 1. Summarize all raw articles
+        # 1. Summarize all raw articles, tracking which dates were affected
         raw_articles = get_raw_articles(conn, limit=BATCH_SIZE)
         logger.info(f"Found {len(raw_articles)} raw articles to summarize")
 
@@ -56,18 +59,23 @@ def run_summarization() -> dict:
             title = article["title"]
             raw_text = article.get("raw_text") or article.get("snippet", "")
 
+            # Track this article's date for digest regeneration
+            fetched = article.get("fetched_at")
+            if fetched:
+                if isinstance(fetched, str):
+                    affected_dates.add(fetched[:10])
+                else:
+                    affected_dates.add(fetched.strftime("%Y-%m-%d"))
+
             if not raw_text or len(raw_text) < 100:
-                # Not enough content — mark as failed
                 update_article_status(conn, article_id, "failed", "Insufficient content")
                 stats["articles_failed"] += 1
                 continue
 
             try:
-                # Mark as in-progress
                 update_article_status(conn, article_id, "summarizing")
                 conn.commit()
 
-                # Summarize using map-reduce
                 logger.info(f"Summarizing article #{article_id}: {title[:80]}")
                 summary, chunk_count = _summarize_article(raw_text)
 
@@ -82,24 +90,17 @@ def run_summarization() -> dict:
 
             conn.commit()
 
-        # 2. Generate daily digest if we have summarized articles
+        # 2. Regenerate digests ONLY for dates with newly summarized articles
         if stats["articles_processed"] > 0:
-            # Generate digests for all affected dates (not just today)
-            dates = conn.execute(
-                "SELECT DISTINCT date(fetched_at) as d FROM articles "
-                "WHERE status = 'summarized' AND summary_text != '' "
-                "ORDER BY d"
-            ).fetchall()
-            for row in dates:
-                date_str = row["d"]
-                if date_str:
-                    try:
-                        _generate_daily_digest(conn, date_str)
-                        conn.commit()
-                        stats["digest_generated"] = True
-                        logger.info(f"Digest generated for {date_str}")
-                    except Exception as e:
-                        logger.error(f"Failed to generate digest for {date_str}: {e}")
+            logger.info(f"Regenerating digests for {len(affected_dates)} date(s): {sorted(affected_dates)}")
+            for date_str in sorted(affected_dates):
+                try:
+                    _generate_daily_digest(conn, date_str)
+                    conn.commit()
+                    stats["digest_generated"] = True
+                    logger.info(f"Digest generated for {date_str}")
+                except Exception as e:
+                    logger.error(f"Failed to generate digest for {date_str}: {e}")
 
         return stats
 
