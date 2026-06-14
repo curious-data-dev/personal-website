@@ -23,6 +23,9 @@ from app.database import (
     get_digest_for_date,
     insert_daily_digest,
     link_articles_to_digest,
+    get_youtube_articles_for_date,
+    insert_youtube_digest,
+    link_videos_to_youtube_digest,
 )
 from app.summarizer.chunker import chunk_article
 from app.summarizer.llm import call_llm, get_last_provider
@@ -126,19 +129,49 @@ def run_summarization(
             affected_dates.add(row["d"])
 
         if affected_dates:
-            logger.info(f"Regenerating digests for {len(affected_dates)} date(s): {sorted(affected_dates)}")
+            logger.info(f"Regenerating RSS digests for {len(affected_dates)} date(s): {sorted(affected_dates)}")
             if on_progress:
-                on_progress(f"Generating digests for {len(affected_dates)} date(s)...")
+                on_progress(f"Generating RSS digests for {len(affected_dates)} date(s)...")
             for date_str in sorted(affected_dates):
                 try:
                     _generate_daily_digest(conn, date_str)
                     conn.commit()
                     stats["digest_generated"] = True
-                    logger.info(f"Digest generated for {date_str}")
+                    logger.info(f"RSS digest generated for {date_str}")
                     if on_progress:
-                        on_progress(f"✓ Digest for {date_str}")
+                        on_progress(f"✓ RSS digest for {date_str}")
                 except Exception as e:
-                    logger.error(f"Failed to generate digest for {date_str}: {e}")
+                    logger.error(f"Failed to generate RSS digest for {date_str}: {e}")
+
+        # ── YouTube digests: detect orphan dates with YT videos but no digest ──
+        yt_affected_dates: set[str] = set()
+        yt_orphan_rows = conn.execute("""
+            SELECT DISTINCT date(a.fetched_at) as d
+            FROM articles a
+            JOIN sources s ON a.source_id = s.id
+            WHERE s.category = 'youtube'
+              AND a.status = 'summarized'
+              AND NOT EXISTS (
+                SELECT 1 FROM youtube_digests yd WHERE yd.date = date(a.fetched_at)
+              )
+        """).fetchall()
+        for row in yt_orphan_rows:
+            yt_affected_dates.add(row["d"])
+
+        if yt_affected_dates:
+            logger.info(f"Regenerating YouTube digests for {len(yt_affected_dates)} date(s): {sorted(yt_affected_dates)}")
+            if on_progress:
+                on_progress(f"Generating YouTube digests for {len(yt_affected_dates)} date(s)...")
+            for date_str in sorted(yt_affected_dates):
+                try:
+                    _generate_youtube_daily_digest(conn, date_str)
+                    conn.commit()
+                    stats["digest_generated"] = True
+                    logger.info(f"YouTube digest generated for {date_str}")
+                    if on_progress:
+                        on_progress(f"✓ YouTube digest for {date_str}")
+                except Exception as e:
+                    logger.error(f"Failed to generate YouTube digest for {date_str}: {e}")
 
         return stats
 
@@ -287,6 +320,103 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
     logger.info(
         f"Daily digest generated for {date_str}: "
         f"{len(articles)} articles from {unique_sources} sources"
+    )
+
+
+# ---------------------------------------------------------------------------
+# YouTube Daily Digest Generation
+# ---------------------------------------------------------------------------
+
+
+def _generate_youtube_daily_digest(
+    conn, date_str: str, provider: str | None = None, model: str | None = None, on_progress=None
+) -> None:
+    """Generate (or regenerate) the YouTube daily digest for a given date."""
+    videos = get_youtube_articles_for_date(conn, date_str)
+
+    if not videos:
+        if on_progress:
+            on_progress("No YouTube videos for this date")
+        logger.info(f"No summarized YouTube videos for {date_str}, skipping digest")
+        return
+
+    if on_progress:
+        on_progress(f"Building YouTube digest prompt from {len(videos)} videos...")
+
+    # Build numbered source list with URLs for citation footnotes & hyperlinks
+    source_list_lines = []
+    ref_urls = {}  # ref_number -> url
+    for i, v in enumerate(videos, start=1):
+        source_name = v.get('source_name', 'Unknown')
+        title = v['title']
+        url = v.get('url', '#')
+        source_list_lines.append(f"[{i}] [{source_name} — {title}]({url})")
+        ref_urls[i] = url
+
+    # Build video summaries with reference numbers
+    video_summaries = "\n\n---\n\n".join(
+        f"[REF {i}] CHANNEL: {v.get('source_name', 'Unknown')}\n"
+        f"TITLE: {v['title']}\n"
+        f"SUMMARY: {v['summary_text']}"
+        for i, v in enumerate(videos, start=1)
+    )
+
+    source_footnote = "\n".join(source_list_lines)
+
+    if on_progress:
+        on_progress("Sending YouTube digest to LLM...")
+
+    digest_text = call_llm(
+        prompt_manager.get_prompt("youtube_digest").format(
+            date=date_str,
+            video_summaries=video_summaries,
+        ),
+        provider=provider,
+        model=model,
+        max_tokens=8192,
+        on_progress=on_progress,
+    )
+
+    # Convert in-text [N] and [N][M] tags to clickable markdown links
+    import re
+    def _make_links(m):
+        nums = re.findall(r'\d+', m.group(0))
+        parts = []
+        for n_str in nums:
+            n = int(n_str)
+            url = ref_urls.get(n, '#')
+            parts.append(f"[[{n}]]({url})")
+        return ''.join(parts)
+    digest_text = re.sub(r'(?:\[\d+\])+', _make_links, digest_text)
+
+    # Append source footnote with clickable links
+    digest_text += f"\n\n## 📚 Sources\n\n{source_footnote}"
+
+    if on_progress:
+        on_progress("LLM responded, saving YouTube digest...")
+
+    # Count unique channels
+    unique_channels = len({v.get("source_id") for v in videos})
+
+    # Generate title
+    title = f"YouTube Daily Digest - {_format_date_pretty(date_str)}"
+
+    digest_id = insert_youtube_digest(
+        conn,
+        date_str=date_str,
+        title=title,
+        summary_text=digest_text,
+        video_count=len(videos),
+        channel_count=unique_channels,
+    )
+
+    # Link videos to digest
+    video_ids = [v["id"] for v in videos]
+    link_videos_to_youtube_digest(conn, digest_id, video_ids)
+
+    logger.info(
+        f"YouTube digest generated for {date_str}: "
+        f"{len(videos)} videos from {unique_channels} channels"
     )
 
 

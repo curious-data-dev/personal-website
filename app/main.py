@@ -18,6 +18,7 @@ from app.config import settings
 from app.database import init_db
 from app.web.routes import router as web_router
 from app.scraper.service import run_scrape
+from app.scraper.youtube.service import run_youtube_scrape
 from app.summarizer.service import run_summarization
 
 # ---------------------------------------------------------------------------
@@ -48,24 +49,36 @@ def daily_scrape_and_summarize() -> None:
     """Run daily at configured time (default 8:00 PM IST).
 
     1. Scrape all RSS feeds → store raw articles in SQLite
-    2. Summarize all raw articles → store summaries
-    3. Generate daily digest
+    2. Scrape YouTube channels → fetch transcripts → store
+    3. Summarize all raw articles → store summaries
+    4. Generate RSS daily digest + YouTube daily digest
     """
     logger.info("=" * 60)
     logger.info("DAILY JOB STARTED — Scrape + Summarize")
     logger.info("=" * 60)
 
-    try:
-        logger.info("▶ Phase 1/2: Scraping feeds...")
-        scrape_stats = run_scrape()
-        logger.info(f"Scrape done: {scrape_stats}")
+    total_new = 0
 
-        if scrape_stats.get("articles_new", 0) > 0:
-            logger.info("▶ Phase 2/2: Summarizing new articles...")
+    try:
+        # Phase 1: RSS feeds
+        logger.info("▶ Phase 1/3: Scraping RSS feeds...")
+        scrape_stats = run_scrape()
+        logger.info(f"RSS scrape done: {scrape_stats}")
+        total_new += scrape_stats.get("articles_new", 0)
+
+        # Phase 2: YouTube channels
+        logger.info("▶ Phase 2/3: Scraping YouTube channels...")
+        yt_stats = run_youtube_scrape()
+        logger.info(f"YouTube scrape done: {yt_stats}")
+        total_new += yt_stats.get("videos_new", 0)
+
+        # Phase 3: Summarization
+        if total_new > 0:
+            logger.info(f"▶ Phase 3/3: Summarizing {total_new} new items + generating digests...")
             summary_stats = run_summarization()
-            logger.info(f"Summarization done: {summary_stats}")
+            logger.info(f"Summarization & digests done: {summary_stats}")
         else:
-            logger.info("No new articles — skipping summarization")
+            logger.info("No new content — skipping summarization")
 
     except Exception as e:
         logger.exception("Daily job failed!")

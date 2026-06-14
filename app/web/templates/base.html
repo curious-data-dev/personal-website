@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}RSS Digest{% endblock %}</title>
+    <title>{% block title %}Media Hub{% endblock %}</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📰</text></svg>" type="image/svg+xml">
 
     {# ── Blocking theme script — sets data-theme before CSS loads to prevent flash ── #}
@@ -21,31 +21,86 @@
     <link rel="stylesheet" href="/static/style.css">
     {% block head_extra %}{% endblock %}
 </head>
-<body>
-    <nav class="app-nav">
-        <a href="/" class="nav-brand">📰 RSS Digest</a>
+<body class="app-layout">
+    {# ── Left Sidebar ── #}
+    <aside class="app-sidebar" id="appSidebar">
+        <div class="sidebar-brand-row">
+            <a href="/" class="sidebar-brand">📰 Media Hub</a>
+            <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar">☰</button>
+        </div>
 
-        <div style="display:flex;align-items:center;gap:0.25rem;">
-            <ul class="nav-links">
-                <li><a href="/" class="nav-icon {% if request.url.path == '/' %}active{% endif %}">📅 <span class="nav-label">Today</span></a></li>
-                <li><a href="/history" class="nav-icon {% if request.url.path.startswith('/history') %}active{% endif %}">📚 <span class="nav-label">History</span></a></li>
-                <li><a href="/sources" class="nav-icon {% if request.url.path.startswith('/sources') %}active{% endif %}">📡 <span class="nav-label">Sources</span></a></li>
-                <li><a href="/admin" class="nav-icon" title="Admin Panel">⚙️</a></li>
-            </ul>
+        <nav class="sidebar-nav">
+            <a href="/" class="sidebar-link {% if request.url.path == '/' %}active{% endif %}" title="Daily Digest">
+                <span class="sidebar-icon">📅</span>
+                <span class="sidebar-label">Daily Digest</span>
+            </a>
+            {% if request.url.path.startswith('/youtube') %}
+            {# YouTube page: collapsible toggle + channel subnav #}
+            <div class="sidebar-link youtube-parent active" id="youtubeNav" title="YouTube">
+                <span class="sidebar-icon">🎬</span>
+                <span class="sidebar-label">YouTube</span>
+                <span class="youtube-chevron" id="youtubeChevron">▸</span>
+            </div>
+            <div class="sidebar-subnav" id="youtubeSubnav">
+                {% block sidebar_subnav %}{% endblock %}
+            </div>
+            {% else %}
+            {# Other pages: plain link #}
+            <a href="/youtube" class="sidebar-link" title="YouTube">
+                <span class="sidebar-icon">🎬</span>
+                <span class="sidebar-label">YouTube</span>
+            </a>
+            {% endif %}
+            <a href="/history" class="sidebar-link {% if request.url.path.startswith('/history') %}active{% endif %}" title="History">
+                <span class="sidebar-icon">📚</span>
+                <span class="sidebar-label">History</span>
+            </a>
+            <a href="/sources" class="sidebar-link {% if request.url.path.startswith('/sources') %}active{% endif %}" title="Sources">
+                <span class="sidebar-icon">📡</span>
+                <span class="sidebar-label">Sources</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <a href="/settings" class="sidebar-link {% if request.url.path.startswith('/settings') %}active{% endif %}" title="Settings">
+                <span class="sidebar-icon">⚙️</span>
+                <span class="sidebar-label">Settings</span>
+            </a>
             <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">☀️</button>
         </div>
-    </nav>
+    </aside>
 
-    <main class="container">
-        {% block content %}{% endblock %}
+    {# ── Main Content ── #}
+    <main class="app-main">
+        <div class="container">
+            {% block content %}{% endblock %}
+        </div>
+        <footer class="app-footer">
+            Personal Media Intelligence Hub
+        </footer>
     </main>
 
-    <footer class="app-footer">
-        Personal Media Intelligence Hub
-    </footer>
-
     <script>
-    // Dark mode toggle — initial theme already applied by head script
+    // ── Sidebar toggle ──
+    (function() {
+        const sidebar = document.getElementById('appSidebar');
+        const toggle = document.getElementById('sidebarToggle');
+        const layout = document.querySelector('.app-layout');
+
+        // Restore saved state
+        const saved = localStorage.getItem('sidebar-collapsed');
+        if (saved === 'true') {
+            layout.classList.add('sidebar-collapsed');
+        }
+
+        toggle.addEventListener('click', () => {
+            layout.classList.toggle('sidebar-collapsed');
+            const isCollapsed = layout.classList.contains('sidebar-collapsed');
+            localStorage.setItem('sidebar-collapsed', isCollapsed);
+        });
+    })();
+
+    // ── Dark mode toggle ──
     (function() {
         const toggle = document.getElementById('themeToggle');
         const html = document.documentElement;
@@ -63,6 +118,41 @@
                 html.setAttribute('data-theme', 'dark');
                 toggle.textContent = '🌙';
                 localStorage.setItem('theme', 'dark');
+            }
+        });
+    })();
+
+    // ── YouTube subnav collapse/expand ──
+    (function() {
+        const ytNav = document.getElementById('youtubeNav');
+        const ytSubnav = document.getElementById('youtubeSubnav');
+        const ytChevron = document.getElementById('youtubeChevron');
+        if (!ytNav || !ytSubnav || !ytChevron) return;
+
+        const STORAGE_KEY = 'youtube-subnav-expanded';
+
+        function expand() {
+            ytSubnav.classList.add('expanded');
+            ytChevron.textContent = '▾';
+        }
+        function collapse() {
+            ytSubnav.classList.remove('expanded');
+            ytChevron.textContent = '▸';
+        }
+
+        // Default expanded on first visit, then respect saved preference
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved !== 'false') {
+            expand();
+        }
+
+        ytNav.addEventListener('click', () => {
+            if (ytSubnav.classList.contains('expanded')) {
+                collapse();
+                localStorage.setItem(STORAGE_KEY, 'false');
+            } else {
+                expand();
+                localStorage.setItem(STORAGE_KEY, 'true');
             }
         });
     })();
