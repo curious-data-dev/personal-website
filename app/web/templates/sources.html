@@ -6,7 +6,6 @@
 <h1 style="color:var(--ink);margin-bottom:0.25rem;">📡 RSS Sources</h1>
 <p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1.25rem;">
     {{ sources|length }} sources configured
-    {% if opml_path %}<code style="font-size:0.8rem;">({{ opml_path }})</code>{% endif %}
 </p>
 
 {% if sources %}
@@ -53,8 +52,7 @@
 <div class="empty-state">
     <div class="empty-state-icon">📡</div>
     <h3>No sources configured</h3>
-    <p>Place your OPML file at <code>{{ opml_path }}</code>.</p>
-    <p style="font-size:0.85rem;">The scraper will import feeds from it on next run.</p>
+    <p>Add RSS feeds via the Settings page or API.</p>
 </div>
 {% endif %}
 

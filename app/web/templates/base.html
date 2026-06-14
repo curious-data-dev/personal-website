@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}RSS Digest{% endblock %}</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📰</text></svg>" type="image/svg+xml">
+
+    {# ── Blocking theme script — sets data-theme before CSS loads to prevent flash ── #}
+    <script>
+    (function() {
+        const saved = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (saved === 'dark' || (!saved && prefersDark)) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+        document.documentElement.classList.add('theme-ready');
+    })();
+    </script>
+
     <link rel="stylesheet" href="/static/style.css">
     {% block head_extra %}{% endblock %}
 </head>
@@ -28,21 +41,17 @@
     </main>
 
     <footer class="app-footer">
-        RSS Digest — Personal news aggregator. Built for one person, for life.
+        Personal Media Intelligence Hub
     </footer>
 
     <script>
-    // Dark mode toggle with localStorage
+    // Dark mode toggle — initial theme already applied by head script
     (function() {
         const toggle = document.getElementById('themeToggle');
         const html = document.documentElement;
 
-        // Load saved theme
-        const saved = localStorage.getItem('theme');
-        if (saved === 'dark') {
-            html.setAttribute('data-theme', 'dark');
-            toggle.textContent = '🌙';
-        }
+        const isDark = html.getAttribute('data-theme') === 'dark';
+        toggle.textContent = isDark ? '🌙' : '☀️';
 
         toggle.addEventListener('click', () => {
             const isDark = html.getAttribute('data-theme') === 'dark';

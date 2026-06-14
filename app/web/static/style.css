@@ -1,5 +1,11 @@
 /* ── RSS Digest — Custom Styles v2 ────────────────────────── */
 
+/* Prevent transition flash until theme is applied */
+html:not(.theme-ready) body,
+html:not(.theme-ready) .app-nav,
+html:not(.theme-ready) .card,
+html:not(.theme-ready) .app-footer { transition: none !important; }
+
 /* ================================================================
    CSS Custom Properties (Theme)
    ================================================================ */

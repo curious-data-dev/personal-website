@@ -311,9 +311,9 @@ def get_all_digests(
     if year:
         conditions.append("strftime('%Y', date) = ?")
         params.append(str(year))
-    if month:
+    if month and month > 0:
         conditions.append("strftime('%m', date) = ?")
-        params.append(f"{month:02d}")
+        params.append(f"{int(month):02d}")
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)

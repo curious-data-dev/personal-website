@@ -25,6 +25,7 @@ from app.database import (
 )
 from app.summarizer.chunker import chunk_article
 from app.summarizer.llm import call_llm, get_last_provider
+from app.prompts.manager import prompt_manager
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ def _summarize_article(raw_text: str) -> tuple[str, int, str]:
 
     # If short enough, summarize directly
     if len(raw_text) <= settings.chunk_size:
-        summary = call_llm(_SINGLE_SUMMARY_PROMPT.format(text=raw_text))
+        summary = call_llm(prompt_manager.get_prompt("single_summary").format(text=raw_text))
         return summary, 1, get_last_provider()
 
     # Map-Reduce: chunk → parallel summarize → synthesize
@@ -148,14 +149,14 @@ def _summarize_article(raw_text: str) -> tuple[str, int, str]:
         return "", 0, ""
 
     if len(chunks) == 1:
-        summary = call_llm(_SINGLE_SUMMARY_PROMPT.format(text=chunks[0]))
+        summary = call_llm(prompt_manager.get_prompt("single_summary").format(text=chunks[0]))
         return summary, 1, get_last_provider()
 
     # MAP phase: summarize each chunk in parallel
     sub_summaries: list[str] = []
     with ThreadPoolExecutor(max_workers=MAX_CHUNK_WORKERS) as executor:
         futures = {
-            executor.submit(call_llm, _CHUNK_SUMMARY_PROMPT.format(text=c)): i
+            executor.submit(call_llm, prompt_manager.get_prompt("chunk_summary").format(text=c)): i
             for i, c in enumerate(chunks)
         }
         for future in as_completed(futures):
@@ -171,7 +172,7 @@ def _summarize_article(raw_text: str) -> tuple[str, int, str]:
 
     # REDUCE phase: synthesize sub-summaries into one cohesive summary
     combined = "\n\n---\n\n".join(sub_summaries)
-    final_summary = call_llm(_REDUCE_PROMPT.format(sub_summaries=combined))
+    final_summary = call_llm(prompt_manager.get_prompt("reduce_synthesis").format(sub_summaries=combined))
 
     return final_summary, len(chunks), get_last_provider()
 
@@ -215,7 +216,7 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
     if on_progress: on_progress("Sending to LLM...")
 
     digest_text = call_llm(
-        _DIGEST_PROMPT.format(
+        prompt_manager.get_prompt("daily_digest").format(
             date=date_str,
             article_summaries=article_summaries,
         ),
@@ -265,79 +266,6 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
         f"Daily digest generated for {date_str}: "
         f"{len(articles)} articles from {unique_sources} sources"
     )
-
-
-# ---------------------------------------------------------------------------
-# Prompt Templates
-# ---------------------------------------------------------------------------
-
-_SINGLE_SUMMARY_PROMPT = """You are a skilled news summarizer. Summarize the following article, preserving EVERY distinct story or news item it contains.
-
-CRITICAL: Your summary must retain all specific details — names of people and organizations, exact dates, numbers and statistics, and locations. Do not generalize or omit these. If the article covers multiple unrelated stories, include all of them.
-
-Guidelines:
-- Cover every distinct story present in the article, even if some are brief
-- Preserve all key facts, names, numbers, and dates verbatim
-- Neutral, objective tone - no editorialising
-- Write in clear, simple English
-- Do NOT include phrases like "This article discusses" or "The author states"
-
-ARTICLE:
-{text}
-
-SUMMARY:"""
-
-_CHUNK_SUMMARY_PROMPT = """Summarize this excerpt from a longer article. Your job is to capture everything — do not drop details that seem minor.
-
-Capture:
-- Every key fact and event mentioned, including supporting details
-- All names of people, organizations, and places
-- All numbers, statistics, percentages, and exact dates
-- The main argument or development with its context
-
-Write a thorough summary. Do not editorialise.
-
-EXCERPT:
-{text}
-
-SUMMARY:"""
-
-_REDUCE_PROMPT = """You are a news editor. Below are summaries of different sections of the same article.
-Synthesize them into ONE cohesive summary.
-
-CRITICAL: Do NOT drop stories or details during synthesis. If a sub-summary mentions a person's name, a date, a number, or a specific event, it MUST appear in your final summary. Only remove exact duplicate sentences — everything else stays.
-
-Guidelines:
-- Merge overlapping coverage of the same story, but keep all unique details from each sub-summary
-- Preserve ALL names, numbers, dates, and locations from every sub-summary
-- Organize in chronological/logical order
-- Neutral, objective tone
-- Do NOT mention that these were sub-summaries
-
-SUB-SUMMARIES:
-{sub_summaries}
-
-SYNTHESIZED SUMMARY:"""
-
-_DIGEST_PROMPT = """You are a daily news editor. Synthesize the following article summaries into one cohesive daily digest for {date}.
-
-SOURCE REFERENCES: Each article summary below is prefixed with a reference number like [REF 1], [REF 2], etc. You MUST tag EVERY sentence or paragraph in your digest with the reference number(s) of the article(s) it draws from. Place the tag at the END of each paragraph, like "[1]" or "[1][3]". Example: "GDP grew 7.7% this year, driven by manufacturing. [2]" Do NOT skip this step. Do NOT fabricate reference numbers.
-
-STEP 1 — Story Inventory: Before writing, mentally identify EVERY distinct news story across ALL article summaries. A story is any self-contained event with its own who, what, when, where. Count them. You must cover ALL of them — skipping one is an error. IMPORTANT: clarifications, denials, refutations, and security incident reports ARE stories too. Do not dismiss them as minor.
-
-STEP 2 — Write the Digest:
-- Start with `## Today's Highlights`: 2-3 sentences touching on the day's biggest developments.
-- Create `##` sections with emoji prefixes based on the actual news content (not pre-set categories). Each section must cover all stories assigned to it with adequate detail — at minimum one full paragraph per story.
-- CRITICAL — for each story, you MUST include: full names (e.g. "Rylen Anil" not "an ethical hacker"), exact dates ("June 2" not "recently"), specific numbers ("0.05%" not "a small amount"), and technical details ("read-only" storage, "cloud access logs analyzed"). Do NOT replace proper names with role descriptions. Do NOT omit names just because the person is not famous. Copy these details from the source summaries.
-- Tag EVERY paragraph with its source reference number(s) at the end, like this: "[1]" or "[1][3]". This is MANDATORY — do not emit any paragraph without a reference tag.
-- If a story has no related stories, give it its own section. A short dedicated section is better than compressing a detailed story into one sentence.
-- Neutral, objective tone. No editorialising.
-- End with `## 💡 Key Takeaway`: 5-6 bullet points (`- **Bold label:** explanation [ref]`), each MUST end with its source reference number(s).
-
-ARTICLE SUMMARIES:
-{article_summaries}
-
-DAILY DIGEST:"""
 
 
 # ---------------------------------------------------------------------------

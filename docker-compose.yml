@@ -6,7 +6,9 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+      - ./app:/app/app
       - "./RSS Feeds main.xml:/app/RSS Feeds main.xml"
+      - ./Main Architechture:/app/Main Architechture
     env_file:
       - .env
     restart: unless-stopped

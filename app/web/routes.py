@@ -273,7 +273,6 @@ async def sources_list(request: Request):
             "sources.html",
             {
                 "sources": sources,
-                "opml_path": settings.opml_path,
             },
         )
     finally:
