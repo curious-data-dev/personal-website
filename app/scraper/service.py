@@ -1,12 +1,10 @@
-"""Scraper service — orchestrates OPML → RSS fetch → extract → store."""
+"""Scraper service — fetches RSS feeds, extracts articles, stores in DB."""
 
 import logging
 from datetime import datetime, timezone
 
-from app.config import settings
 from app.database import (
     get_db,
-    upsert_source,
     get_active_sources,
     insert_article,
     article_exists,
@@ -14,7 +12,7 @@ from app.database import (
     start_scrape_log,
     finish_scrape_log,
 )
-from app.scraper.feed_reader import parse_opml, fetch_feed_entries
+from app.scraper.feed_reader import fetch_feed_entries
 from app.scraper.article_extractor import extract_article_text
 
 logger = logging.getLogger(__name__)
@@ -23,12 +21,16 @@ logger = logging.getLogger(__name__)
 def run_scrape(
     start_date: str | None = None,
     end_date: str | None = None,
+    source_ids: list[int] | None = None,
+    on_progress=None,
 ) -> dict:
     """Main entry point. Called by scheduler or manual trigger.
 
     Args:
         start_date: ISO date string (YYYY-MM-DD) — only include articles from this date onward.
         end_date: ISO date string (YYYY-MM-DD) — only include articles up to this date.
+        source_ids: If provided, only scrape these specific sources. If None, all active.
+        on_progress: Optional callback(status_message) for live progress tracking.
 
     Returns a summary dict with scrape statistics.
     """
@@ -61,29 +63,28 @@ def run_scrape(
     log_id = start_scrape_log(conn)
 
     try:
-        # 1. Parse OPML and upsert sources
-        logger.info("Parsing OPML file: %s", settings.opml_path)
-        feeds = parse_opml(settings.opml_path)
-
-        for feed in feeds:
-            upsert_source(
-                conn,
-                name=feed["name"],
-                feed_url=feed["xmlUrl"],
-                site_url=feed.get("htmlUrl", ""),
-                category=feed.get("category", ""),
-            )
-        conn.commit()
-
-        # 2. Fetch sources from DB (includes any manually added)
-        sources = get_active_sources(conn)
+        # 1. Fetch sources from DB
+        if source_ids:
+            # Fetch specific sources by ID (for per-feed testing)
+            placeholders = ",".join("?" * len(source_ids))
+            rows = conn.execute(
+                f"SELECT * FROM sources WHERE id IN ({placeholders}) ORDER BY category, name",
+                source_ids,
+            ).fetchall()
+            sources = [dict(r) for r in rows]
+        else:
+            sources = get_active_sources(conn)
         stats["feeds_total"] = len(sources)
 
-        # 3. For each source, fetch entries and extract article text
-        for source in sources:
+        # 2. For each source, fetch entries and extract article text
+        total = len(sources)
+        for idx, source in enumerate(sources):
             feed_url = source["feed_url"]
             source_id = source["id"]
             source_name = source["name"]
+
+            if on_progress:
+                on_progress(f"Fetching {source_name} ({idx + 1}/{total})")
 
             try:
                 logger.info(f"Fetching feed: {source_name} ({feed_url})")
@@ -122,10 +123,14 @@ def run_scrape(
 
                 update_source_last_fetched(conn, source_id)
                 stats["feeds_success"] += 1
+                if on_progress:
+                    on_progress(f"✓ {source_name}: {stats['articles_new']} new articles")
 
             except Exception as e:
                 logger.error(f"Failed to process feed '{source_name}': {e}")
                 stats["feeds_failed"] += 1
+                if on_progress:
+                    on_progress(f"✗ {source_name}: failed")
                 stats["errors"].append({
                     "feed": source_name,
                     "url": feed_url,
@@ -134,7 +139,7 @@ def run_scrape(
 
             conn.commit()
 
-        # 4. Finalise scrape log
+        # 3. Finalise scrape log
         finish_scrape_log(conn, log_id, **stats)
         conn.commit()
 

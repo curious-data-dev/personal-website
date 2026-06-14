@@ -1,15 +1,71 @@
 {% extends "base.html" %}
 {% block title %}RSS Sources{% endblock %}
 
+{% block head_extra %}
+<style>
+.inline-edit-form { display:none; padding:0.4rem 0; }
+.inline-edit-form.active { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; }
+.inline-edit-form input {
+    padding:0.3rem 0.45rem; border:1px solid var(--border);
+    border-radius:4px; font-size:0.8rem; background:var(--bg); color:var(--text);
+}
+.test-results {
+    display:none; margin-top:0.4rem; padding:0.6rem 0.75rem;
+    background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
+    font-size:0.8rem; max-height:250px; overflow-y:auto;
+}
+.test-results.active { display:block; }
+.test-article {
+    padding:0.35rem 0; border-bottom:1px solid var(--border);
+}
+.test-article:last-child { border-bottom:none; }
+.test-article a { font-weight:500; }
+.test-article .test-meta { font-size:0.72rem; color:var(--text-muted); }
+.test-article .test-excerpt {
+    font-size:0.78rem; color:var(--text-muted); margin-top:0.15rem;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 
 <h1 style="color:var(--ink);margin-bottom:0.25rem;">📡 RSS Sources</h1>
-<p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1.25rem;">
+<p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1.25rem;" id="source-count">
     {{ sources|length }} sources configured
 </p>
 
+{# ── Add Feed Form ── #}
+<div class="card" style="margin-bottom:1.25rem;">
+    <h3 style="margin-top:0;color:var(--ink);font-size:0.95rem;">Add Feed</h3>
+    <form id="add-feed-form" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
+        <div style="flex:2;min-width:200px;">
+            <label style="display:block;font-size:0.78rem;font-weight:500;margin-bottom:0.2rem;">Feed URL *</label>
+            <input type="url" name="feed_url" required placeholder="https://example.com/rss"
+                   style="width:100%;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem;background:var(--bg);color:var(--text);">
+        </div>
+        <div style="flex:1.5;min-width:130px;">
+            <label style="display:block;font-size:0.78rem;font-weight:500;margin-bottom:0.2rem;">Name *</label>
+            <input type="text" name="name" required placeholder="My Feed"
+                   style="width:100%;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem;background:var(--bg);color:var(--text);">
+        </div>
+        <div style="flex:1;min-width:100px;">
+            <label style="display:block;font-size:0.78rem;font-weight:500;margin-bottom:0.2rem;">Category</label>
+            <input type="text" name="category" placeholder="e.g. tech"
+                   style="width:100%;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem;background:var(--bg);color:var(--text);">
+        </div>
+        <div style="flex:1;min-width:110px;">
+            <label style="display:block;font-size:0.78rem;font-weight:500;margin-bottom:0.2rem;">Site URL</label>
+            <input type="url" name="site_url" placeholder="https://..."
+                   style="width:100%;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem;background:var(--bg);color:var(--text);">
+        </div>
+        <button type="submit" style="padding:0.45rem 1rem;background:var(--ink);color:#fff;border:none;border-radius:var(--radius-sm);font-size:0.85rem;font-weight:500;cursor:pointer;white-space:nowrap;">Add Feed</button>
+    </form>
+    <div id="add-feedback" style="margin-top:0.5rem;font-size:0.82rem;display:none;"></div>
+</div>
+
 {% if sources %}
-<div class="card" style="padding:0;overflow:hidden;">
+<div class="card" style="padding:0;overflow:visible;">
 <table class="sources-table">
     <thead>
         <tr>
@@ -17,31 +73,59 @@
             <th>Category</th>
             <th>Status</th>
             <th>Last Fetched</th>
+            <th style="width:130px;">Actions</th>
         </tr>
     </thead>
     <tbody>
         {% for s in sources %}
-        <tr>
+        <tr id="source-row-{{ s.id }}">
             <td>
-                <strong>{{ s.name }}</strong>
-                {% if s.site_url %}
-                <br><small><a href="{{ s.site_url }}" target="_blank" rel="noopener">{{ s.site_url[:60] }}</a></small>
-                {% endif %}
+                <div id="source-display-{{ s.id }}">
+                    <strong>{{ s.name }}</strong>
+                    {% if s.site_url %}
+                    <br><small><a href="{{ s.site_url }}" target="_blank" rel="noopener">{{ s.site_url[:60] }}</a></small>
+                    {% endif %}
+                </div>
+                <div id="source-edit-{{ s.id }}" class="inline-edit-form">
+                    <input type="text" id="edit-name-{{ s.id }}" value="{{ s.name|e }}" placeholder="Name" style="width:120px;">
+                    <input type="url" id="edit-feed-{{ s.id }}" value="{{ s.feed_url|e }}" placeholder="Feed URL" style="width:180px;">
+                    <input type="text" id="edit-cat-{{ s.id }}" value="{{ s.category or '' }}" placeholder="Category" style="width:90px;">
+                    <input type="url" id="edit-site-{{ s.id }}" value="{{ s.site_url or '' }}" placeholder="Site URL" style="width:150px;">
+                    <button onclick="saveEdit({{ s.id }})" style="padding:0.2rem 0.5rem;font-size:0.72rem;cursor:pointer;background:var(--ink);color:#fff;border:none;border-radius:3px;">Save</button>
+                    <button onclick="cancelEdit({{ s.id }})" style="padding:0.2rem 0.5rem;font-size:0.72rem;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:3px;">Cancel</button>
+                </div>
             </td>
-            <td><span class="source-badge {{ s.category|lower|replace(' ', '-')|replace('&', '') if s.category else '' }}">{{ s.category or '—' }}</span></td>
             <td>
+                <span id="cat-badge-{{ s.id }}">
+                    <span class="source-badge {{ s.category|lower|replace(' ', '-')|replace('&', '') if s.category else '' }}">{{ s.category or '—' }}</span>
+                </span>
+            </td>
+            <td>
+                <span id="status-badge-{{ s.id }}">
                 {% if s.is_active %}
                 <span class="badge badge-active">Active</span>
                 {% else %}
                 <span class="badge badge-inactive">Inactive</span>
                 {% endif %}
+                </span>
             </td>
-            <td>
+            <td id="last-fetched-{{ s.id }}">
                 {% if s.last_fetched_at %}
                 {{ s.last_fetched_at[:16] }}
                 {% else %}
                 <span style="color:var(--text-muted);">Never</span>
                 {% endif %}
+            </td>
+            <td>
+                <button id="test-btn-{{ s.id }}" onclick="testSource({{ s.id }})" title="Scrape & summarize this feed" style="padding:0.2rem 0.45rem;font-size:0.75rem;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);">🧪</button>
+                <button onclick="editSource({{ s.id }})" title="Edit" style="padding:0.2rem 0.45rem;font-size:0.75rem;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);">✏️</button>
+                <button onclick="toggleSource({{ s.id }}, {{ 'false' if s.is_active else 'true' }})" title="{{ 'Deactivate' if s.is_active else 'Activate' }}" style="padding:0.2rem 0.45rem;font-size:0.75rem;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);">{{ '⏸' if s.is_active else '▶' }}</button>
+                <button onclick="deleteSource({{ s.id }}, '{{ s.name|e }}')" title="Delete this feed and all its articles" style="padding:0.2rem 0.45rem;font-size:0.75rem;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);">🗑</button>
+            </td>
+        </tr>
+        <tr id="test-results-row-{{ s.id }}" style="display:none;">
+            <td colspan="5" style="padding:0 0.75rem 0.6rem;">
+                <div id="test-results-{{ s.id }}" class="test-results"></div>
             </td>
         </tr>
         {% endfor %}
@@ -52,8 +136,246 @@
 <div class="empty-state">
     <div class="empty-state-icon">📡</div>
     <h3>No sources configured</h3>
-    <p>Add RSS feeds via the Settings page or API.</p>
+    <p>Add an RSS feed using the form above.</p>
 </div>
 {% endif %}
+
+<script>
+// ── Add Feed ──
+document.getElementById('add-feed-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
+    const fb = document.getElementById('add-feedback');
+    btn.disabled = true; btn.textContent = 'Adding...'; fb.style.display = 'none';
+
+    try {
+        const body = {
+            feed_url: form.feed_url.value.trim(),
+            name: form.name.value.trim(),
+            category: form.category.value.trim(),
+            site_url: form.site_url.value.trim(),
+        };
+        const res = await fetch('/api/sources', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        if (res.status === 401) {
+            fb.style.display = 'block'; fb.style.color = '#c00';
+            fb.innerHTML = '🔒 <a href="/login">Log in</a> first to add feeds.';
+            btn.disabled = false; btn.textContent = 'Add Feed';
+            return;
+        }
+        const data = await res.json();
+        fb.style.display = 'block';
+        if (res.ok) {
+            fb.style.color = '#155724';
+            fb.textContent = '✅ Feed added! Reloading...';
+            setTimeout(() => location.reload(), 800);
+        } else {
+            fb.style.color = '#721c24';
+            fb.textContent = '❌ ' + (data.detail || 'Failed');
+        }
+    } catch (err) {
+        fb.style.display = 'block'; fb.style.color = '#721c24'; fb.textContent = '❌ Network error';
+    }
+    btn.disabled = false; btn.textContent = 'Add Feed';
+});
+
+// ── Edit Source ──
+function editSource(id) {
+    document.getElementById('source-display-' + id).style.display = 'none';
+    document.getElementById('source-edit-' + id).classList.add('active');
+}
+
+function cancelEdit(id) {
+    document.getElementById('source-display-' + id).style.display = '';
+    document.getElementById('source-edit-' + id).classList.remove('active');
+}
+
+async function saveEdit(id) {
+    const name = document.getElementById('edit-name-' + id).value.trim();
+    const feed_url = document.getElementById('edit-feed-' + id).value.trim();
+    const category = document.getElementById('edit-cat-' + id).value.trim();
+    const site_url = document.getElementById('edit-site-' + id).value.trim();
+
+    try {
+        const res = await fetch('/api/sources/' + id, {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, feed_url, category, site_url})
+        });
+        if (res.status === 401) {
+            alert('🔒 Please log in via /admin first to edit feeds.');
+            cancelEdit(id);
+            return;
+        }
+        if (res.ok) {
+            location.reload();
+        } else {
+            const data = await res.json();
+            alert('❌ ' + (data.detail || 'Edit failed'));
+        }
+    } catch (err) {
+        alert('❌ Network error');
+    }
+}
+
+// ── Test Source ──
+async function testSource(id) {
+    const btn = document.getElementById('test-btn-' + id);
+    const resultsRow = document.getElementById('test-results-row-' + id);
+    const resultsDiv = document.getElementById('test-results-' + id);
+
+    // Start test
+    btn.textContent = '⏳'; btn.disabled = true;
+    resultsRow.style.display = '';
+    resultsDiv.classList.add('active');
+    resultsDiv.innerHTML = '<span style="color:var(--text-muted);">⏳ Scraping & summarizing...</span>';
+
+    try {
+        const res = await fetch('/api/sources/' + id + '/test', {method: 'POST'});
+        if (res.status === 401) {
+            resultsDiv.innerHTML = '<span style="color:#c00;">🔒 Login required. <a href="/login">Log in</a> first.</span>';
+            resetTestBtn(id, btn, resultsRow);
+            return;
+        }
+        const data = await res.json();
+        if (!data.ok) {
+            resultsDiv.innerHTML = '<span style="color:#721c24;">❌ Failed to start test</span>';
+            resetTestBtn(id, btn, resultsRow);
+            return;
+        }
+    } catch (err) {
+        resultsDiv.innerHTML = '<span style="color:#721c24;">❌ Network error</span>';
+        resetTestBtn(id, btn, resultsRow);
+        return;
+    }
+
+    // Poll for completion
+    let attempts = 0;
+    const maxAttempts = 60; // 2 minutes
+
+    async function poll() {
+        try {
+            const srcRes = await fetch('/api/sources/' + id);
+            const src = await srcRes.json();
+            const lastFetched = src.last_fetched_at;
+
+            if (lastFetched && attempts > 1) {
+                // Fetch articles
+                const artRes = await fetch('/api/sources/' + id + '/articles?limit=5');
+                const artData = await artRes.json();
+                const articles = artData.articles || [];
+                const summarized = articles.filter(a => a.status === 'summarized').length;
+
+                // Update last-fetched cell
+                const lfCell = document.getElementById('last-fetched-' + id);
+                if (lfCell) lfCell.textContent = lastFetched ? lastFetched.substring(0, 16) : '—';
+
+                btn.textContent = '✅ ' + articles.length;
+                btn.style.color = '#155724';
+
+                if (articles.length === 0) {
+                    resultsDiv.innerHTML = '<span style="color:var(--text-muted);">No new articles found in this feed.</span>';
+                } else {
+                    let html = '<div style="margin-bottom:0.25rem;font-weight:500;color:var(--ink);">' +
+                               '📰 ' + articles.length + ' article(s) fetched, ' + summarized + ' summarized</div>';
+                    for (const a of articles) {
+                        const statusIcon = a.status === 'summarized' ? '✅' :
+                                          a.status === 'failed' ? '❌' :
+                                          a.status === 'raw' ? '📄' : '⏳';
+                        html += '<div class="test-article">' +
+                                '<a href="/article/' + a.id + '">' + escHtml(a.title || 'Untitled') + '</a>' +
+                                '<div class="test-meta">' + statusIcon + ' ' + a.status;
+                        if (a.url) {
+                            html += ' · <a href="' + a.url + '" target="_blank" rel="noopener" style="font-size:0.72rem;">View original →</a>';
+                        }
+                        html += '</div>';
+                        if (a.summary_text) {
+                            html += '<div class="test-excerpt">' + escHtml(a.summary_text.substring(0, 200)) + '…</div>';
+                        }
+                        html += '</div>';
+                    }
+                    resultsDiv.innerHTML = html;
+                }
+
+                // Auto-collapse after 15 seconds
+                setTimeout(() => {
+                    resultsRow.style.display = 'none';
+                    resultsDiv.classList.remove('active');
+                }, 15000);
+
+                resetTestBtn(id, btn, resultsRow, false);
+                return;
+            }
+
+            attempts++;
+            if (attempts < maxAttempts) {
+                setTimeout(poll, 2000);
+            } else {
+                resultsDiv.innerHTML = '<span style="color:var(--text-muted);">⏱ Timed out waiting for results. Check Admin panel.</span>';
+                resetTestBtn(id, btn, resultsRow);
+            }
+        } catch (err) {
+            resultsDiv.innerHTML = '<span style="color:#721c24;">❌ Error polling status</span>';
+            resetTestBtn(id, btn, resultsRow);
+        }
+    }
+
+    poll();
+}
+
+function resetTestBtn(id, btn, resultsRow, hideResults = true) {
+    setTimeout(() => {
+        btn.textContent = '🧪';
+        btn.disabled = false;
+        btn.style.color = 'var(--text-muted)';
+    }, hideResults ? 500 : 3000);
+}
+
+function escHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// ── Toggle Source ──
+async function toggleSource(id, makeActive) {
+    try {
+        const res = await fetch('/api/sources/' + id, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({is_active: makeActive})
+        });
+        if (res.status === 401) { alert('🔒 Please log in via /admin first.'); return; }
+        if (res.ok) location.reload();
+        else { const data = await res.json(); alert('❌ ' + (data.detail || 'Toggle failed')); }
+    } catch (err) { alert('❌ Network error'); }
+}
+
+// ── Delete Source ──
+async function deleteSource(id, name) {
+    if (!confirm('Delete "' + name + '" and all its articles?\n\nExisting digests keep their text, but linked articles will be removed.')) return;
+
+    const row = document.getElementById('source-row-' + id);
+    const btns = row.querySelectorAll('button');
+    btns.forEach(b => b.disabled = true);
+    try {
+        const res = await fetch('/api/sources/' + id, {method: 'DELETE'});
+        if (res.status === 401) { alert('🔒 Please log in via /admin first.'); btns.forEach(b => b.disabled = false); return; }
+        if (res.ok) {
+            row.remove();
+            const resultsRow = document.getElementById('test-results-row-' + id);
+            if (resultsRow) resultsRow.remove();
+            const remaining = document.querySelectorAll('tbody tr[id^="source-row-"]').length;
+            document.getElementById('source-count').textContent = remaining + ' sources configured';
+            if (remaining === 0) location.reload();
+        } else {
+            const data = await res.json();
+            alert('❌ ' + (data.detail || 'Delete failed'));
+        }
+    } catch (err) { alert('❌ Network error'); }
+    btns.forEach(b => b.disabled = false);
+}
+</script>
 
 {% endblock %}

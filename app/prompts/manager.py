@@ -33,8 +33,12 @@ FALLBACK_PROMPTS = {
         "Preserve all unique details:\n\n{sub_summaries}"
     ),
     "daily_digest": (
-        "Create a daily digest for {date} from the following article summaries. "
-        "Tag each paragraph with its source reference number:\n\n{article_summaries}"
+        "You are a daily news editor. Synthesize the following article summaries "
+        "into one cohesive daily digest for {date}. "
+        "Start with ## Today's Highlights, then themed sections with emoji prefixes, "
+        "end with ## 💡 Key Takeaway bullet points. Tag every paragraph with "
+        "source reference numbers.\n\n"
+        "ARTICLE SUMMARIES:\n{article_summaries}\n\nDAILY DIGEST:"
     ),
 }
 

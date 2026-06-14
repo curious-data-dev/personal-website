@@ -6,6 +6,15 @@
 <h1 style="color:var(--ink);margin-bottom:0.25rem;">⚙️ Admin Panel</h1>
 <p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1rem;">Manual controls and system status</p>
 
+{# ── Running Jobs ── #}
+<div id="running-jobs" class="card" style="display:none;padding:1rem;margin-bottom:1rem;">
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
+        <span style="font-size:1.1rem;">🔄</span>
+        <strong style="color:var(--ink);">Running Jobs</strong>
+    </div>
+    <div id="jobs-list" style="font-size:0.84rem;"></div>
+</div>
+
 <div class="card" style="padding:0.75rem 1rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
     <label style="font-size:0.85rem;font-weight:500;white-space:nowrap;">🤖 LLM Model:</label>
     <select id="model-select" style="padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem;background:var(--bg);color:var(--text);min-width:200px;">
@@ -117,6 +126,38 @@ async function loadStatus() {
     try {
         const res = await fetch('/admin/status');
         const data = await res.json();
+
+        // ── Render running jobs ──
+        const runningJobs = data.jobs || {};
+        const jobsCard = document.getElementById('running-jobs');
+        const jobsList = document.getElementById('jobs-list');
+        const jobEntries = Object.entries(runningJobs);
+        if (jobEntries.length > 0) {
+            jobsCard.style.display = 'block';
+            let jobHtml = '';
+            for (const [key, msg] of jobEntries) {
+                let icon = '⏳';
+                let color = 'var(--ink)';
+                if (!msg) continue;
+                if (msg.startsWith('✅')) { icon = '✅'; color = '#155724'; }
+                else if (msg.startsWith('❌')) { icon = '❌'; color = '#721c24'; }
+                else if (msg.startsWith('✗')) { icon = '❌'; color = '#721c24'; }
+                else if (msg.startsWith('✓')) { icon = '✓'; color = '#155724'; }
+
+                const label = key.startsWith('test-') ? '🧪 Testing feed #' + key.replace('test-', '') :
+                              key === 'scrape' ? '📥 Scraping' :
+                              key === 'summarize' ? '🤖 Summarization' :
+                              key;
+                jobHtml += '<div style="display:flex;align-items:flex-start;gap:0.5rem;margin-bottom:0.5rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);">' +
+                           '<span style="font-size:0.9rem;">' + icon + '</span>' +
+                           '<div><span style="font-weight:500;">' + label + '</span><br>' +
+                           '<span style="color:' + color + ';">' + escHtml(msg) + '</span></div>' +
+                           '</div>';
+            }
+            jobsList.innerHTML = jobHtml;
+        } else {
+            jobsCard.style.display = 'none';
+        }
 
         const llm = data.llm || {};
         let html = '<div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;font-size:0.85rem;">';
@@ -232,6 +273,12 @@ function getProviderForModel(model) {
     if (model.startsWith('llama')) return 'groq';
     if (model.startsWith('deepseek')) return 'deepseek';
     return 'gemini';
+}
+
+function escHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 // Persist model selection

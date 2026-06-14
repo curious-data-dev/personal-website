@@ -148,7 +148,10 @@ def _call_gemini(prompt: str, max_tokens: int = 4096, model: Optional[str] = Non
     if not settings.gemini_api_key:
         raise ValueError("GEMINI_API_KEY is not set")
 
-    client = genai.Client(api_key=settings.gemini_api_key)
+    client = genai.Client(
+        api_key=settings.gemini_api_key,
+        http_options={"timeout": 120000},  # 120 seconds in milliseconds
+    )
     response = client.models.generate_content(
         model=model if model else settings.gemini_model,
         contents=prompt,
@@ -176,7 +179,7 @@ def _call_groq(prompt: str, max_tokens: int = 4096, model: Optional[str] = None)
     if not settings.groq_api_key:
         raise ValueError("GROQ_API_KEY is not set")
 
-    client = Groq(api_key=settings.groq_api_key)
+    client = Groq(api_key=settings.groq_api_key, timeout=120.0)
     completion = client.chat.completions.create(
         model=model if model else "llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
@@ -203,7 +206,7 @@ def _call_deepseek(prompt: str, max_tokens: int = 4096, model: Optional[str] = N
     if not settings.deepseek_api_key:
         raise ValueError("DEEPSEEK_API_KEY is not set")
 
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=120.0) as client:
         response = client.post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={

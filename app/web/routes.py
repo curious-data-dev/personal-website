@@ -14,6 +14,11 @@ from fastapi.templating import Jinja2Templates
 from app.config import settings
 from app.database import (
     get_db,
+    upsert_source,
+    update_source,
+    delete_source,
+    update_source_active,
+    get_articles_for_source,
     get_digest_for_date,
     get_all_digests,
     get_digest_years,
@@ -286,6 +291,201 @@ async def health():
 
 
 # ---------------------------------------------------------------------------
+# Source Management API
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/sources")
+async def api_add_source(request: Request):
+    """Add a new RSS source with URL validation."""
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    name = (body.get("name") or "").strip()
+    feed_url = (body.get("feed_url") or "").strip()
+    site_url = (body.get("site_url") or "").strip()
+    category = (body.get("category") or "").strip()
+
+    if not feed_url:
+        raise HTTPException(status_code=400, detail="feed_url is required")
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+
+    # Validate URL by attempting to parse it as a feed
+    import feedparser
+    parsed = feedparser.parse(feed_url)
+    if parsed.bozo and not parsed.entries:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL does not appear to be a valid RSS/Atom feed: {feed_url}",
+        )
+
+    conn = get_db()
+    try:
+        source_id = upsert_source(conn, name=name, feed_url=feed_url,
+                                   site_url=site_url, category=category)
+        conn.commit()
+        return JSONResponse(
+            {"ok": True, "id": source_id, "name": name},
+            status_code=201,
+        )
+    finally:
+        conn.close()
+
+
+@router.delete("/api/sources/{source_id}")
+async def api_delete_source(request: Request, source_id: int):
+    """Delete a source and cascade-delete all its articles."""
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+
+    conn = get_db()
+    try:
+        articles_deleted = delete_source(conn, source_id)
+        conn.commit()
+        return JSONResponse({
+            "ok": True,
+            "articles_deleted": articles_deleted,
+        })
+    finally:
+        conn.close()
+
+
+@router.patch("/api/sources/{source_id}")
+async def api_toggle_source(request: Request, source_id: int):
+    """Toggle a source active/inactive."""
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    is_active = body.get("is_active", True)
+
+    conn = get_db()
+    try:
+        update_source_active(conn, source_id, is_active)
+        conn.commit()
+        return JSONResponse({"ok": True, "is_active": is_active})
+    finally:
+        conn.close()
+
+
+@router.post("/api/sources/{source_id}/test")
+async def api_test_source(request: Request, source_id: int):
+    """Scrape and summarize a single source for testing."""
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+
+    def _run():
+        try:
+            scrape_stats = run_scrape(
+                source_ids=[source_id],
+                on_progress=lambda msg: _set_job_status(f"test-{source_id}", msg),
+            )
+            logger.info(f"Test scrape complete for source {source_id}: {scrape_stats}")
+            if scrape_stats.get("articles_new", 0) > 0:
+                sum_stats = run_summarization(
+                    source_id=source_id,
+                    on_progress=lambda msg: _set_job_status(f"test-{source_id}", msg),
+                )
+                logger.info(f"Test summarize complete for source {source_id}: {sum_stats}")
+                # Always regenerate today's digest so test articles appear
+                if sum_stats.get("articles_processed", 0) > 0:
+                    from app.summarizer.service import _generate_daily_digest, _today_ist_str
+                    _set_job_status(f"test-{source_id}", "Generating today's digest...")
+                    conn = get_db()
+                    try:
+                        _generate_daily_digest(conn, _today_ist_str())
+                        conn.commit()
+                        _set_job_status(f"test-{source_id}", "✅ Done — {scrape_stats.get('articles_new', 0)} scraped, {sum_stats.get('articles_processed', 0)} summarized")
+                    finally:
+                        conn.close()
+        except Exception as e:
+            logger.error(f"Test run failed for source {source_id}: {e}")
+            _set_job_status(f"test-{source_id}", f"❌ Failed: {str(e)[:100]}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return JSONResponse({"ok": True, "status": "started"})
+
+
+@router.get("/api/sources/{source_id}")
+async def api_get_source(request: Request, source_id: int):
+    """Get a single source with article count."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Source not found")
+        source = dict(row)
+        count_row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM articles WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()
+        source["article_count"] = count_row["cnt"]
+        return JSONResponse(source)
+    finally:
+        conn.close()
+
+
+@router.get("/api/sources/{source_id}/articles")
+async def api_get_source_articles(
+    request: Request, source_id: int, limit: int = 5
+):
+    """Get recent articles for a source."""
+    conn = get_db()
+    try:
+        articles = get_articles_for_source(conn, source_id, limit=limit)
+        return JSONResponse({"articles": articles})
+    finally:
+        conn.close()
+
+
+@router.put("/api/sources/{source_id}")
+async def api_edit_source(request: Request, source_id: int):
+    """Edit a source's name, feed_url, site_url, or category."""
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    name = body.get("name")
+    feed_url = body.get("feed_url")
+    site_url = body.get("site_url")
+    category = body.get("category")
+
+    if feed_url is not None:
+        feed_url = feed_url.strip() or None
+
+    conn = get_db()
+    try:
+        update_source(
+            conn, source_id,
+            name=name.strip() if name else None,
+            feed_url=feed_url,
+            site_url=site_url.strip() if site_url else None,
+            category=category.strip() if category else None,
+        )
+        conn.commit()
+        return JSONResponse({"ok": True})
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Auth-protected routes (manual triggers)
 # ---------------------------------------------------------------------------
 
@@ -345,10 +545,19 @@ async def trigger_scrape(request: Request):
     end_date = body.get("end_date") or None
 
     def _run():
+        _set_job_status("scrape", "Scraping feeds...")
         try:
-            stats = run_scrape(start_date=start_date, end_date=end_date)
+            stats = run_scrape(
+                start_date=start_date, end_date=end_date,
+                on_progress=lambda msg: _set_job_status("scrape", msg),
+            )
+            new = stats.get("articles_new", 0)
+            ok = stats.get("feeds_success", 0)
+            total = stats.get("feeds_total", 0)
+            _set_job_status("scrape", f"✅ Done — {new} articles from {ok}/{total} feeds")
             logger.info(f"Background scrape complete: {stats}")
         except Exception as e:
+            _set_job_status("scrape", f"❌ Failed: {str(e)[:100]}")
             logger.error(f"Background scrape failed: {e}")
 
     threading.Thread(target=_run, daemon=True).start()
@@ -368,10 +577,17 @@ async def trigger_summarize(request: Request):
         raise HTTPException(status_code=401)
 
     def _run():
+        _set_job_status("summarize", "Starting summarization...")
         try:
-            stats = run_summarization()
+            stats = run_summarization(
+                on_progress=lambda msg: _set_job_status("summarize", msg),
+            )
+            processed = stats.get("articles_processed", 0)
+            failed = stats.get("articles_failed", 0)
+            _set_job_status("summarize", f"✅ Done — {processed} processed, {failed} failed")
             logger.info(f"Background summarization complete: {stats}")
         except Exception as e:
+            _set_job_status("summarize", f"❌ Failed: {str(e)[:100]}")
             logger.error(f"Background summarization failed: {e}")
 
     threading.Thread(target=_run, daemon=True).start()

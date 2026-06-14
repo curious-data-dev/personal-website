@@ -159,6 +159,83 @@ def update_source_last_fetched(conn: sqlite3.Connection, source_id: int) -> None
     )
 
 
+def update_source_active(conn: sqlite3.Connection, source_id: int, is_active: bool) -> None:
+    conn.execute(
+        "UPDATE sources SET is_active = ? WHERE id = ?",
+        (1 if is_active else 0, source_id),
+    )
+
+
+def delete_source(conn: sqlite3.Connection, source_id: int) -> int:
+    """Delete a source and all its articles. Returns number of articles deleted."""
+    conn.execute(
+        "DELETE FROM digest_articles WHERE article_id IN "
+        "(SELECT id FROM articles WHERE source_id = ?)",
+        (source_id,),
+    )
+    cur = conn.execute(
+        "DELETE FROM articles WHERE source_id = ?",
+        (source_id,),
+    )
+    articles_deleted = cur.rowcount
+    conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+    return articles_deleted
+
+
+def get_raw_articles_for_source(
+    conn: sqlite3.Connection, source_id: int, limit: int = 50
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM articles WHERE status = 'raw' AND source_id = ? "
+        "ORDER BY fetched_at DESC LIMIT ?",
+        (source_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_source(
+    conn: sqlite3.Connection,
+    source_id: int,
+    name: str | None = None,
+    feed_url: str | None = None,
+    site_url: str | None = None,
+    category: str | None = None,
+) -> None:
+    """Update editable fields on a source. Only provided fields are changed."""
+    fields = []
+    params = []
+    if name is not None:
+        fields.append("name = ?")
+        params.append(name)
+    if feed_url is not None:
+        fields.append("feed_url = ?")
+        params.append(feed_url)
+    if site_url is not None:
+        fields.append("site_url = ?")
+        params.append(site_url)
+    if category is not None:
+        fields.append("category = ?")
+        params.append(category)
+    if fields:
+        params.append(source_id)
+        conn.execute(
+            f"UPDATE sources SET {', '.join(fields)} WHERE id = ?",
+            params,
+        )
+
+
+def get_articles_for_source(
+    conn: sqlite3.Connection, source_id: int, limit: int = 5
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT id, title, url, summary_text, status, fetched_at "
+        "FROM articles WHERE source_id = ? "
+        "ORDER BY fetched_at DESC LIMIT ?",
+        (source_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # Articles CRUD
 # ---------------------------------------------------------------------------

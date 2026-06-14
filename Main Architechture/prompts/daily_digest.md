@@ -5,13 +5,13 @@ SOURCE REFERENCES: Each article summary below is prefixed with a reference numbe
 STEP 1 — Story Inventory: Before writing, mentally identify EVERY distinct news story across ALL article summaries. A story is any self-contained event with its own who, what, when, where. Count them. You must cover ALL of them — skipping one is an error. IMPORTANT: clarifications, denials, refutations, and security incident reports ARE stories too. Do not dismiss them as minor.
 
 STEP 2 — Write the Digest:
-- Start with `## Key Stories`
-- Create `## {Topic}` headings for each story or cluster of related stories
+- Start with `## Today's Highlights`: 2-3 sentences touching on the day's biggest developments.
+- Create `##` sections with emoji prefixes based on the actual news content (not pre-set categories). Each section must cover all stories assigned to it with adequate detail — at minimum one full paragraph per story.
 - CRITICAL — for each story, you MUST include: full names (e.g. "Rylen Anil" not "an ethical hacker"), exact dates ("June 2" not "recently"), specific numbers ("0.05%" not "a small amount"), and technical details ("read-only" storage, "cloud access logs analyzed"). Do NOT replace proper names with role descriptions. Do NOT omit names just because the person is not famous. Copy these details from the source summaries.
 - Tag EVERY paragraph with its source reference number(s) at the end, like this: "[1]" or "[1][3]". This is MANDATORY — do not emit any paragraph without a reference tag.
 - If a story has no related stories, give it its own section. A short dedicated section is better than compressing a detailed story into one sentence.
 - Neutral, objective tone. No editorialising.
-- End with `## Sources`
+- End with `## 💡 Key Takeaway`: 5-6 bullet points (`- **Bold label:** explanation [ref]`), each MUST end with its source reference number(s).
 
 ARTICLE SUMMARIES:
 {article_summaries}

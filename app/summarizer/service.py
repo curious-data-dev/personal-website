@@ -16,6 +16,7 @@ from app.config import settings
 from app.database import (
     get_db,
     get_raw_articles,
+    get_raw_articles_for_source,
     update_article_status,
     update_article_summary,
     get_articles_for_date,
@@ -39,12 +40,18 @@ MAX_CHUNK_WORKERS = 5
 MAX_ARTICLE_WORKERS = 3
 
 
-def run_summarization(regenerate_dates: list[str] | None = None) -> dict:
+def run_summarization(
+    source_id: int | None = None,
+    regenerate_dates: list[str] | None = None,
+    on_progress=None,
+) -> dict:
     """Summarize all raw articles, then regenerate digests for affected dates.
 
     Args:
+        source_id: If provided, only summarize articles from this source.
         regenerate_dates: If provided, only regenerate digests for these dates.
                           If None, auto-detects dates from newly summarized articles.
+        on_progress: Optional callback(status_message) for live progress tracking.
     """
     conn = get_db()
     stats = {"articles_processed": 0, "articles_failed": 0, "digest_generated": False}
@@ -52,10 +59,17 @@ def run_summarization(regenerate_dates: list[str] | None = None) -> dict:
 
     try:
         # 1. Summarize all raw articles, tracking which dates were affected
-        raw_articles = get_raw_articles(conn, limit=BATCH_SIZE)
+        if source_id is not None:
+            raw_articles = get_raw_articles_for_source(conn, source_id, limit=BATCH_SIZE)
+        else:
+            raw_articles = get_raw_articles(conn, limit=BATCH_SIZE)
         logger.info(f"Found {len(raw_articles)} raw articles to summarize")
 
-        for article in raw_articles:
+        if on_progress:
+            on_progress(f"Found {len(raw_articles)} raw articles")
+
+        total_articles = len(raw_articles)
+        for idx, article in enumerate(raw_articles):
             article_id = article["id"]
             title = article["title"]
             raw_text = article.get("raw_text") or article.get("snippet", "")
@@ -79,6 +93,10 @@ def run_summarization(regenerate_dates: list[str] | None = None) -> dict:
             try:
                 update_article_status(conn, article_id, "summarizing")
                 conn.commit()
+
+                if on_progress:
+                    short_title = title[:60] + "…" if len(title) > 60 else title
+                    on_progress(f"Summarizing ({idx + 1}/{total_articles}): {short_title}")
 
                 logger.info(f"Summarizing article #{article_id}: {title[:80]}")
                 summary, chunk_count, provider = _summarize_article(raw_text)
@@ -109,12 +127,16 @@ def run_summarization(regenerate_dates: list[str] | None = None) -> dict:
 
         if affected_dates:
             logger.info(f"Regenerating digests for {len(affected_dates)} date(s): {sorted(affected_dates)}")
+            if on_progress:
+                on_progress(f"Generating digests for {len(affected_dates)} date(s)...")
             for date_str in sorted(affected_dates):
                 try:
                     _generate_daily_digest(conn, date_str)
                     conn.commit()
                     stats["digest_generated"] = True
                     logger.info(f"Digest generated for {date_str}")
+                    if on_progress:
+                        on_progress(f"✓ Digest for {date_str}")
                 except Exception as e:
                     logger.error(f"Failed to generate digest for {date_str}: {e}")
 
