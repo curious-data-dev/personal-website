@@ -20,6 +20,7 @@ from app.web.routes import router as web_router
 from app.scraper.service import run_scrape
 from app.scraper.youtube.service import run_youtube_scrape
 from app.summarizer.service import run_summarization
+from app.transcripts import process_pending_transcripts
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -66,15 +67,23 @@ def daily_scrape_and_summarize() -> None:
         logger.info(f"RSS scrape done: {scrape_stats}")
         total_new += scrape_stats.get("articles_new", 0)
 
-        # Phase 2: YouTube channels
-        logger.info("▶ Phase 2/3: Scraping YouTube channels...")
-        yt_stats = run_youtube_scrape()
+        # Phase 2: YouTube channels — discover videos, defer transcripts
+        logger.info("▶ Phase 2/4: Scraping YouTube channels...")
+        yt_stats = run_youtube_scrape(defer_transcripts=True)
         logger.info(f"YouTube scrape done: {yt_stats}")
         total_new += yt_stats.get("videos_new", 0)
 
-        # Phase 3: Summarization
+        # Phase 3: Process transcripts through provider chain
+        #         (direct → supadata → ...). On local: direct works.
+        #         On VPS: direct blocked → falls back to supadata.
+        logger.info("▶ Phase 3/4: Processing transcripts...")
+        transcript_stats = process_pending_transcripts()
+        logger.info(f"Transcript processing done: {transcript_stats}")
+        total_new += transcript_stats.get("completed", 0)
+
+        # Phase 4: Summarization
         if total_new > 0:
-            logger.info(f"▶ Phase 3/3: Summarizing {total_new} new items + generating digests...")
+            logger.info(f"▶ Phase 4/4: Summarizing new items + generating digests...")
             summary_stats = run_summarization()
             logger.info(f"Summarization & digests done: {summary_stats}")
         else:
