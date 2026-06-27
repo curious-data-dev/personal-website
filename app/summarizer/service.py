@@ -46,6 +46,7 @@ MAX_ARTICLE_WORKERS = 3
 def run_summarization(
     source_id: int | None = None,
     regenerate_dates: list[str] | None = None,
+    source_types: set[str] | None = None,
     on_progress=None,
 ) -> dict:
     """Summarize all raw articles, then regenerate digests for affected dates.
@@ -57,15 +58,27 @@ def run_summarization(
         on_progress: Optional callback(status_message) for live progress tracking.
     """
     conn = get_db()
+    selected_types = source_types or {"rss", "youtube"}
     stats = {"articles_processed": 0, "articles_failed": 0, "digest_generated": False}
-    affected_dates: set[str] = set(regenerate_dates or [])
+    affected_dates = {
+        "rss": set(regenerate_dates or []),
+        "youtube": set(regenerate_dates or []),
+    }
 
     try:
         # 1. Summarize all raw articles, tracking which dates were affected
         if source_id is not None:
             raw_articles = get_raw_articles_for_source(conn, source_id, limit=BATCH_SIZE)
         else:
-            raw_articles = get_raw_articles(conn, limit=BATCH_SIZE)
+            placeholders = ",".join("?" for _ in selected_types)
+            rows = conn.execute(
+                f"""SELECT a.*, s.source_type FROM articles a
+                    JOIN sources s ON s.id=a.source_id
+                    WHERE a.status='raw' AND s.source_type IN ({placeholders})
+                    ORDER BY a.fetched_at LIMIT ?""",
+                (*sorted(selected_types), BATCH_SIZE),
+            ).fetchall()
+            raw_articles = [dict(row) for row in rows]
         logger.info(f"Found {len(raw_articles)} raw articles to summarize")
 
         if on_progress:
@@ -77,16 +90,12 @@ def run_summarization(
             title = article["title"]
             raw_text = article.get("raw_text") or article.get("snippet", "")
 
-            # Track this article's date for digest regeneration
-            fetched = article.get("fetched_at")
-            if fetched:
-                if isinstance(fetched, str):
-                    affected_dates.add(fetched[:10])
-                else:
-                    affected_dates.add(fetched.strftime("%Y-%m-%d"))
-            else:
-                # Fallback: use today in IST
-                affected_dates.add(_today_ist_str())
+            published_date = article.get("published_date_ist")
+            item_source_type = article.get("source_type")
+            if not item_source_type:
+                item_source_type = conn.execute(
+                    "SELECT source_type FROM sources WHERE id=?", (article["source_id"],)
+                ).fetchone()["source_type"]
 
             if not raw_text or len(raw_text) < 100:
                 update_article_status(conn, article_id, "failed", "Insufficient content")
@@ -105,6 +114,8 @@ def run_summarization(
                 summary, chunk_count, provider = _summarize_article(raw_text)
 
                 update_article_summary(conn, article_id, summary, chunk_count, provider)
+                if published_date:
+                    affected_dates[item_source_type].add(published_date)
                 stats["articles_processed"] += 1
                 logger.info(f"Summarized article #{article_id} ({chunk_count} chunks)")
 
@@ -118,21 +129,23 @@ def run_summarization(
         # 2. Regenerate digests for affected dates
         # Find dates with summarized articles but no digest yet
         orphan_rows = conn.execute("""
-            SELECT DISTINCT date(a.fetched_at) as d
+            SELECT DISTINCT a.published_date_ist as d
             FROM articles a
-            WHERE a.status = 'summarized'
+            JOIN sources s ON s.id = a.source_id
+            WHERE a.status = 'summarized' AND s.source_type = 'rss'
               AND NOT EXISTS (
-                SELECT 1 FROM daily_digests dg WHERE dg.date = date(a.fetched_at)
+                SELECT 1 FROM daily_digests dg WHERE dg.date = a.published_date_ist
               )
         """).fetchall()
         for row in orphan_rows:
-            affected_dates.add(row["d"])
+            if row["d"]:
+                affected_dates["rss"].add(row["d"])
 
-        if affected_dates:
-            logger.info(f"Regenerating RSS digests for {len(affected_dates)} date(s): {sorted(affected_dates)}")
+        if "rss" in selected_types and affected_dates["rss"]:
+            logger.info(f"Regenerating RSS digests for {len(affected_dates['rss'])} date(s): {sorted(affected_dates['rss'])}")
             if on_progress:
-                on_progress(f"Generating RSS digests for {len(affected_dates)} date(s)...")
-            for date_str in sorted(affected_dates):
+                on_progress(f"Generating RSS digests for {len(affected_dates['rss'])} date(s)...")
+            for date_str in sorted(affected_dates["rss"]):
                 try:
                     _generate_daily_digest(conn, date_str)
                     conn.commit()
@@ -144,21 +157,22 @@ def run_summarization(
                     logger.error(f"Failed to generate RSS digest for {date_str}: {e}")
 
         # ── YouTube digests: detect orphan dates with YT videos but no digest ──
-        yt_affected_dates: set[str] = set()
+        yt_affected_dates = affected_dates["youtube"]
         yt_orphan_rows = conn.execute("""
-            SELECT DISTINCT date(a.fetched_at) as d
+            SELECT DISTINCT a.published_date_ist as d
             FROM articles a
             JOIN sources s ON a.source_id = s.id
-            WHERE s.category = 'youtube'
+            WHERE s.source_type = 'youtube'
               AND a.status = 'summarized'
               AND NOT EXISTS (
-                SELECT 1 FROM youtube_digests yd WHERE yd.date = date(a.fetched_at)
+                SELECT 1 FROM youtube_digests yd WHERE yd.date = a.published_date_ist
               )
         """).fetchall()
         for row in yt_orphan_rows:
-            yt_affected_dates.add(row["d"])
+            if row["d"]:
+                yt_affected_dates.add(row["d"])
 
-        if yt_affected_dates:
+        if "youtube" in selected_types and yt_affected_dates:
             logger.info(f"Regenerating YouTube digests for {len(yt_affected_dates)} date(s): {sorted(yt_affected_dates)}")
             if on_progress:
                 on_progress(f"Generating YouTube digests for {len(yt_affected_dates)} date(s)...")

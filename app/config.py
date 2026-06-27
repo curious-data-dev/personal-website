@@ -25,6 +25,18 @@ class Settings(BaseSettings):
     scrape_cron_minute: int = 0
     lookback_hours: int = 48  # 48h window ensures RSS feed delays don't cause missed articles
 
+    # Durable worker and YouTube transcript providers
+    worker_poll_seconds: int = 5
+    worker_lease_minutes: int = 360
+    youtube_transcript_providers: str = "supadata,scribetube,transcriptapi_io"
+    supadata_api_key: str = ""
+    supadata_monthly_limit: int = 100
+    scribetube_api_key: str = ""
+    scribetube_monthly_limit: int = 1000
+    transcriptapi_io_api_key: str = ""
+    transcriptapi_io_monthly_limit: int = 100
+    youtube_job_max_attempts: int = 5
+
     # Summarization
     max_article_chars: int = 15000
     min_summary_chars: int = 600

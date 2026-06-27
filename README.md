@@ -97,6 +97,50 @@ cp .env.example .env && nano .env    # Fill in API keys
 docker compose up -d --build
 ```
 
+### Database migrations
+
+The local and VPS databases are independent. Deploy migration code; never copy the
+local SQLite database over the VPS database. `docker compose up` runs the one-shot
+`migrate` service first. It creates a SQLite-consistent timestamped backup under
+`data/backups/` when migrations are pending, applies each file in `migrations/`
+transactionally, and starts the web and worker services only after success.
+
+For an explicit deployment:
+
+```bash
+docker compose stop worker
+docker compose build
+docker compose run --rm migrate
+docker compose up -d
+```
+
+After the schema migration, normalize legacy publication dates without LLM calls:
+
+```bash
+docker compose run --rm app python -m app.backfill
+```
+
+Historical digest regeneration is resumable but performs LLM calls, so run it
+deliberately:
+
+```bash
+docker compose run --rm app python -m app.backfill --regenerate-digests
+```
+
+### YouTube transcript providers
+
+YouTube discovery can succeed without a transcript provider, but videos cannot
+be summarized until captions are retrieved. Configure at least one provider key
+from `.env.example`. For local testing only, direct caption access can be enabled:
+
+```dotenv
+YOUTUBE_TRANSCRIPT_PROVIDERS=direct
+```
+
+Direct access is not recommended on a VPS because YouTube commonly blocks
+datacenter addresses. Use the configured Supadata/ScribeTube/TranscriptAPI chain
+for VPS deployment.
+
 For secure access from all devices, use **Tailscale** (free mesh VPN) — install on VPS and your devices. No ports exposed to the internet.
 
 ## How It Works

@@ -21,6 +21,9 @@
 .test-article:last-child { border-bottom:none; }
 .test-article a { font-weight:500; }
 .test-article .test-meta { font-size:0.72rem; color:var(--text-muted); }
+section:has(#btn-scrape) { display:none; }
+.run-source-choice { display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer;font-weight:600; }
+.run-source { width:1.15rem;height:1.15rem;accent-color:var(--accent);cursor:pointer; }
 </style>
 {% endblock %}
 
@@ -48,6 +51,31 @@
     </div>
     <div id="jobs-list" style="font-size:0.84rem;"></div>
 </div>
+
+<section style="margin-bottom:2rem;">
+    <h2>Unified Sources &amp; Run</h2>
+    <p style="color:var(--text-muted);font-size:0.88rem;">Selection applies only to this run. Permanent active state is unchanged.</p>
+    <div class="card" style="padding:1rem;margin-bottom:1rem;">
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+            <button type="button" class="btn btn-sm" onclick="setRunSelection(true)">Select active</button>
+            <button type="button" class="btn btn-sm" onclick="setRunSelection(false)">Clear</button>
+            <select id="source-type-filter" onchange="filterRunSources()"><option value="">All types</option><option value="rss">RSS</option><option value="youtube">YouTube</option></select>
+        </div>
+        <div class="table-wrap"><table class="source-table">
+            <thead><tr><th>Run</th><th>Type</th><th>Source</th><th>Permanent state</th><th>Last checked</th></tr></thead>
+            <tbody>{% for src in all_sources %}<tr class="run-source-row" data-type="{{ src.source_type }}">
+                <td><label class="run-source-choice"><input class="run-source" type="checkbox" value="{{ src.id }}" data-active="{{ 1 if src.is_active else 0 }}" {% if src.is_active %}checked{% endif %}> Select</label></td>
+                <td>{{ src.source_type|upper }}</td><td>{{ src.name }}</td><td><button class="btn btn-sm" onclick="togglePermanent({{ src.id }}, {{ 'true' if src.is_active else 'false' }})">{{ 'Active' if src.is_active else 'Inactive' }}</button></td><td>{{ src.last_fetched_at or 'Never' }}</td>
+            </tr>{% endfor %}</tbody>
+        </table></div>
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1rem;align-items:end;">
+            <label>Start date (optional)<br><input type="date" id="run-start"></label>
+            <label>End date (optional)<br><input type="date" id="run-end"></label>
+            <button id="btn-unified-run" class="btn btn-primary" onclick="startUnifiedRun()">Run selected sources</button>
+        </div>
+        <div id="unified-run-result" style="margin-top:0.75rem;font-size:0.88rem;"></div>
+    </div>
+</section>
 
 {# ── Manual Triggers ── #}
 <section style="margin-bottom:2rem;">
@@ -143,6 +171,44 @@
 </section>
 
 <script>
+function setRunSelection(activeOnly) {
+    document.querySelectorAll('.run-source').forEach(cb => cb.checked = activeOnly && cb.dataset.active === '1');
+}
+function filterRunSources() {
+    const type = document.getElementById('source-type-filter').value;
+    document.querySelectorAll('.run-source-row').forEach(row => row.style.display = !type || row.dataset.type === type ? '' : 'none');
+}
+async function togglePermanent(sourceId, current) {
+    const response = await fetch('/api/sources/' + sourceId, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({is_active:!current})});
+    if (response.ok) location.reload();
+}
+async function startUnifiedRun() {
+    const btn = document.getElementById('btn-unified-run'), result = document.getElementById('unified-run-result');
+    const source_ids = [...document.querySelectorAll('.run-source:checked')].map(cb => Number(cb.value));
+    if (!source_ids.length) { result.textContent = 'Select at least one source.'; return; }
+    btn.disabled = true; result.textContent = 'Queuing run...';
+    try {
+        const response = await fetch('/api/runs', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({source_ids, start_date:document.getElementById('run-start').value || null, end_date:document.getElementById('run-end').value || null})});
+        const data = await response.json(); if (!response.ok) throw new Error(data.detail || 'Unable to create run');
+        const timer = setInterval(async () => {
+            const run = await (await fetch(data.status_url)).json();
+            result.innerHTML = '<strong>Run #' + run.id + '</strong>: ' + run.status + ' — ' + run.stage;
+            if (['completed','partial','failed','no_new_content'].includes(run.status)) {
+                clearInterval(timer); btn.disabled = false;
+                if (run.affected_dates?.length) result.innerHTML += '<br>' + run.affected_dates.map(d => '<a href="' + d.url + '">' + d.source_type.toUpperCase() + ' ' + d.digest_date + '</a>').join(' · ');
+                if (run.errors?.length) result.innerHTML += '<div class="error-box" style="margin-top:0.75rem;">' + run.errors.map(e => escHtml((e.branch ? e.branch + ': ' : '') + (e.error || JSON.stringify(e)))).join('<br>') + '</div>';
+                if (['partial','failed'].includes(run.status)) result.innerHTML += '<button class="btn btn-sm" style="margin-top:0.5rem;" onclick="retryUnifiedRun(' + run.id + ')">Retry failed work</button>';
+            }
+        }, 1500);
+    } catch (error) { result.textContent = error.message; btn.disabled = false; }
+}
+async function retryUnifiedRun(runId) {
+    const result = document.getElementById('unified-run-result');
+    const response = await fetch('/api/runs/' + runId + '/retry', {method:'POST'});
+    const data = await response.json();
+    result.textContent = response.ok ? 'Retry queued as run #' + data.id + '.' : (data.detail || 'Retry failed.');
+}
+
 // Persist model selection
 (function() {
     const sel = document.getElementById('model-select');

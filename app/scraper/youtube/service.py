@@ -28,6 +28,7 @@ from app.database import (
     insert_article,
     article_exists,
     update_source_last_fetched,
+    update_source_fetch_result,
 )
 
 logger = logging.getLogger(__name__)
@@ -213,6 +214,11 @@ def _strip_html(text: str) -> str:
 
 def run_youtube_scrape(
     channel_ids: list[str] | None = None,
+    source_ids: list[int] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    run_id: int | None = None,
+    defer_transcripts: bool = False,
     on_progress=None,
 ) -> dict:
     """Main entry point for the YouTube scraping pipeline.
@@ -236,12 +242,29 @@ def run_youtube_scrape(
         "errors": [],
     }
 
-    since = datetime.now(timezone.utc) - timedelta(hours=settings.lookback_hours)
-    until = datetime.now(timezone.utc)
+    ist = timezone(timedelta(hours=5, minutes=30))
+    if start_date:
+        since = datetime.fromisoformat(start_date).replace(tzinfo=ist).astimezone(timezone.utc)
+    else:
+        since = datetime.now(timezone.utc) - timedelta(hours=settings.lookback_hours)
+    if end_date:
+        until = (
+            datetime.fromisoformat(end_date).replace(tzinfo=ist)
+            + timedelta(days=1) - timedelta(microseconds=1)
+        ).astimezone(timezone.utc)
+    else:
+        until = datetime.now(timezone.utc)
 
     try:
         # Get YouTube sources from DB
-        if channel_ids:
+        if source_ids:
+            placeholders = ",".join("?" for _ in source_ids)
+            rows = conn.execute(
+                f"SELECT * FROM sources WHERE id IN ({placeholders}) AND source_type='youtube' ORDER BY name",
+                source_ids,
+            ).fetchall()
+            sources = [dict(r) for r in rows]
+        elif channel_ids:
             # Resolve handles/URLs to channel IDs
             resolved = []
             for cid in channel_ids:
@@ -253,7 +276,7 @@ def run_youtube_scrape(
             placeholders = ",".join("?" * len(resolved))
             feed_urls = [_get_rss_url(cid) for cid in resolved]
             rows = conn.execute(
-                f"SELECT * FROM sources WHERE feed_url IN ({placeholders}) AND category='youtube' ORDER BY name",
+                f"SELECT * FROM sources WHERE feed_url IN ({placeholders}) AND source_type='youtube' ORDER BY name",
                 feed_urls,
             ).fetchall()
             sources = [dict(r) for r in rows]
@@ -290,6 +313,22 @@ def run_youtube_scrape(
                     video_url = video["url"]
                     if article_exists(conn, video_url):
                         stats["videos_skipped"] += 1
+                        continue
+
+                    if defer_transcripts:
+                        from app.database import attach_run_item, enqueue_transcript_job
+                        article_id = insert_article(
+                            conn, source_id=source_id, url=video_url,
+                            title=video["title"], snippet=video["snippet"], raw_text="",
+                            author=source_name, published_at=video["published"],
+                            status="pending_transcript",
+                            duration_seconds=video.get("duration_seconds"),
+                        )
+                        if article_id:
+                            enqueue_transcript_job(conn, article_id, video["video_id"])
+                            if run_id is not None:
+                                attach_run_item(conn, run_id, article_id, True)
+                            stats["videos_new"] += 1
                         continue
 
                     if on_progress:
@@ -342,7 +381,7 @@ def run_youtube_scrape(
                                 f"Stored video (no transcript): {video['title'][:60]}"
                             )
 
-                update_source_last_fetched(conn, source_id)
+                update_source_fetch_result(conn, source_id, "success")
                 stats["channels_success"] += 1
 
             except Exception as e:
@@ -352,6 +391,7 @@ def run_youtube_scrape(
                     "channel": source_name,
                     "error": str(e),
                 })
+                update_source_fetch_result(conn, source_id, "failed", str(e)[:500])
 
             conn.commit()
 

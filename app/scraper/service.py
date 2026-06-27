@@ -1,7 +1,7 @@
 """Scraper service — fetches RSS feeds, extracts articles, stores in DB."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from app.database import (
     get_db,
@@ -9,6 +9,7 @@ from app.database import (
     insert_article,
     article_exists,
     update_source_last_fetched,
+    update_source_fetch_result,
     start_scrape_log,
     finish_scrape_log,
 )
@@ -22,6 +23,7 @@ def run_scrape(
     start_date: str | None = None,
     end_date: str | None = None,
     source_ids: list[int] | None = None,
+    run_id: int | None = None,
     on_progress=None,
 ) -> dict:
     """Main entry point. Called by scheduler or manual trigger.
@@ -49,14 +51,17 @@ def run_scrape(
     until: datetime | None = None
     if start_date:
         try:
-            since = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            ist = timezone(timedelta(hours=5, minutes=30))
+            since = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=ist).astimezone(timezone.utc)
         except ValueError:
             logger.warning(f"Invalid start_date: {start_date}, ignoring")
     if end_date:
         try:
-            until = datetime.strptime(end_date, "%Y-%m-%d").replace(
-                hour=23, minute=59, second=59, tzinfo=timezone.utc
-            )
+            ist = timezone(timedelta(hours=5, minutes=30))
+            until = (
+                datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=ist)
+                + timedelta(days=1) - timedelta(microseconds=1)
+            ).astimezone(timezone.utc)
         except ValueError:
             logger.warning(f"Invalid end_date: {end_date}, ignoring")
 
@@ -118,10 +123,13 @@ def run_scrape(
                     )
 
                     if article_id:
+                        if run_id is not None:
+                            from app.database import attach_run_item
+                            attach_run_item(conn, run_id, article_id, True)
                         stats["articles_new"] += 1
                         logger.debug(f"Stored article #{article_id}: {entry['title'][:80]}")
 
-                update_source_last_fetched(conn, source_id)
+                update_source_fetch_result(conn, source_id, "success")
                 stats["feeds_success"] += 1
                 if on_progress:
                     on_progress(f"✓ {source_name}: {stats['articles_new']} new articles")
@@ -136,6 +144,7 @@ def run_scrape(
                     "url": feed_url,
                     "error": str(e),
                 })
+                update_source_fetch_result(conn, source_id, "failed", str(e)[:500])
 
             conn.commit()
 

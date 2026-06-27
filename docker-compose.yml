@@ -1,4 +1,13 @@
 services:
+  migrate:
+    build: .
+    command: ["python", "-m", "app.migrate"]
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    restart: "no"
+
   app:
     build: .
     container_name: rss-aggregator
@@ -10,4 +19,21 @@ services:
       - ./Main Architechture:/app/Main Architechture
     env_file:
       - .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - ./data:/app/data
+      - ./app:/app/app
+      - ./Main Architechture:/app/Main Architechture
+    env_file:
+      - .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped

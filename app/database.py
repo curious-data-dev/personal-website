@@ -5,6 +5,7 @@ Uses raw sqlite3 from stdlib. No ORM. One file. Simple.
 
 import sqlite3
 import json
+import logging
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,8 @@ from typing import Any
 from app.config import settings
 
 DB_PATH = Path(settings.data_dir) / "aggregator.db"
+MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Connection
@@ -44,7 +47,37 @@ def init_db() -> None:
         conn.close()
 
 def _run_migrations(conn: sqlite3.Connection) -> None:
-    """Add columns that may be missing from older schemas."""
+    """Apply ordered SQL migrations exactly once."""
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS schema_migrations (
+               version TEXT PRIMARY KEY,
+               applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+           )"""
+    )
+    applied = {
+        row["version"]
+        for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
+    }
+    if MIGRATIONS_DIR.exists():
+        for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            if path.stem in applied:
+                continue
+            logger.info("Applying database migration %s", path.name)
+            script = path.read_text(encoding="utf-8")
+            try:
+                conn.execute("BEGIN")
+                for statement in script.split(";"):
+                    if statement.strip():
+                        conn.execute(statement)
+                conn.execute(
+                    "INSERT INTO schema_migrations(version) VALUES (?)", (path.stem,)
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+    # Compatibility for databases created by intermediate pre-versioned builds.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(articles)")}
     if "llm_provider" not in cols:
         conn.execute("ALTER TABLE articles ADD COLUMN llm_provider TEXT")
@@ -158,19 +191,21 @@ def upsert_source(conn: sqlite3.Connection, name: str, feed_url: str,
                category = excluded.category""",
         (name, feed_url, site_url, category),
     )
-    return cur.lastrowid
+    row = conn.execute("SELECT id FROM sources WHERE feed_url=?", (feed_url,)).fetchone()
+    return row["id"]
 
 
 def get_active_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT * FROM sources WHERE is_active = 1 ORDER BY category, name"
+        """SELECT * FROM sources WHERE is_active = 1 AND archived_at IS NULL
+           AND source_type = 'rss' ORDER BY category, name"""
     ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_all_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT * FROM sources ORDER BY category, name"
+        "SELECT * FROM sources WHERE archived_at IS NULL ORDER BY source_type, category, name"
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -182,6 +217,16 @@ def update_source_last_fetched(conn: sqlite3.Connection, source_id: int) -> None
     )
 
 
+def update_source_fetch_result(
+    conn: sqlite3.Connection, source_id: int, status: str, error: str | None = None
+) -> None:
+    conn.execute(
+        """UPDATE sources SET last_fetched_at = ?, last_fetch_status = ?,
+                  last_fetch_error = ? WHERE id = ?""",
+        (datetime.utcnow(), status, error, source_id),
+    )
+
+
 def update_source_active(conn: sqlite3.Connection, source_id: int, is_active: bool) -> None:
     conn.execute(
         "UPDATE sources SET is_active = ? WHERE id = ?",
@@ -190,24 +235,15 @@ def update_source_active(conn: sqlite3.Connection, source_id: int, is_active: bo
 
 
 def delete_source(conn: sqlite3.Connection, source_id: int) -> int:
-    """Delete a source and all its articles. Returns number of articles deleted."""
+    """Archive a source while preserving collected content and digest history."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM articles WHERE source_id = ?", (source_id,)
+    ).fetchone()
     conn.execute(
-        "DELETE FROM digest_articles WHERE article_id IN "
-        "(SELECT id FROM articles WHERE source_id = ?)",
+        "UPDATE sources SET archived_at = CURRENT_TIMESTAMP, is_active = 0 WHERE id = ?",
         (source_id,),
     )
-    conn.execute(
-        "DELETE FROM youtube_digest_videos WHERE article_id IN "
-        "(SELECT id FROM articles WHERE source_id = ?)",
-        (source_id,),
-    )
-    cur = conn.execute(
-        "DELETE FROM articles WHERE source_id = ?",
-        (source_id,),
-    )
-    articles_deleted = cur.rowcount
-    conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
-    return articles_deleted
+    return row["cnt"] if row else 0
 
 
 def get_raw_articles_for_source(
@@ -272,10 +308,12 @@ def get_articles_for_source(
 def insert_article(conn: sqlite3.Connection, **kwargs) -> int | None:
     """Insert an article. Returns its id, or None if URL already exists."""
     try:
+        published_at = kwargs.get("published_at")
         cur = conn.execute(
             """INSERT INTO articles
-               (source_id, url, title, snippet, raw_text, author, published_at, fetched_at, status, duration_seconds)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (source_id, url, title, snippet, raw_text, author, published_at,
+                published_date_ist, fetched_at, status, duration_seconds)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 kwargs.get("source_id"),
                 kwargs["url"],
@@ -283,7 +321,8 @@ def insert_article(conn: sqlite3.Connection, **kwargs) -> int | None:
                 kwargs.get("snippet", ""),
                 kwargs.get("raw_text", ""),
                 kwargs.get("author", ""),
-                kwargs.get("published_at"),
+                published_at,
+                publication_date_ist(published_at),
                 kwargs.get("fetched_at") or datetime.utcnow(),
                 kwargs.get("status", "raw"),
                 kwargs.get("duration_seconds"),
@@ -292,6 +331,30 @@ def insert_article(conn: sqlite3.Connection, **kwargs) -> int | None:
         return cur.lastrowid
     except sqlite3.IntegrityError:
         return None
+
+
+def publication_date_ist(value: Any) -> str | None:
+    """Normalize an aware, ISO, or RFC timestamp to an IST calendar date."""
+    if not value:
+        return None
+    from datetime import timezone, timedelta
+    from email.utils import parsedate_to_datetime
+
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        raw = str(value)
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                dt = parsedate_to_datetime(raw)
+            except (TypeError, ValueError):
+                return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    ist = timezone(timedelta(hours=5, minutes=30))
+    return dt.astimezone(ist).date().isoformat()
 
 
 def article_exists(conn: sqlite3.Connection, url: str) -> bool:
@@ -345,9 +408,10 @@ def get_articles_for_date(
            FROM articles a
            JOIN sources s ON a.source_id = s.id
            WHERE a.status = 'summarized'
-             AND date(a.fetched_at) = date(?)
-             AND (s.category IS NULL OR s.category != 'youtube')
-           ORDER BY a.fetched_at DESC""",
+             AND a.published_date_ist = date(?)
+             AND s.source_type = 'rss'
+             AND a.excluded_at IS NULL
+           ORDER BY a.published_at DESC""",
         (date_str,),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -361,7 +425,8 @@ def get_recent_articles(
            FROM articles a
            JOIN sources s ON a.source_id = s.id
            WHERE a.status = 'summarized'
-             AND (s.category IS NULL OR s.category != 'youtube')
+             AND s.source_type = 'rss'
+             AND a.excluded_at IS NULL
            ORDER BY a.fetched_at DESC
            LIMIT ?""",
         (limit,),
@@ -382,7 +447,7 @@ def insert_daily_digest(
     article_count: int,
     source_count: int,
 ) -> int:
-    cur = conn.execute(
+    conn.execute(
         """INSERT INTO daily_digests (date, title, summary_text, article_count, source_count)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(date) DO UPDATE SET
@@ -394,8 +459,6 @@ def insert_daily_digest(
                updated_at = CURRENT_TIMESTAMP""",
         (date_str, title, summary_text, article_count, source_count),
     )
-    if cur.lastrowid:
-        return cur.lastrowid
     # ON CONFLICT UPDATE doesn't set lastrowid — fetch the existing ID
     row = conn.execute(
         "SELECT id FROM daily_digests WHERE date = ?", (date_str,)
@@ -540,7 +603,7 @@ def get_adjacent_dates(
 def get_youtube_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Return all YouTube channel sources (active + inactive)."""
     rows = conn.execute(
-        "SELECT * FROM sources WHERE category = 'youtube' ORDER BY name"
+        "SELECT * FROM sources WHERE source_type = 'youtube' AND archived_at IS NULL ORDER BY name"
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -548,7 +611,8 @@ def get_youtube_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 def get_active_youtube_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Return YouTube channels with is_active=1."""
     rows = conn.execute(
-        "SELECT * FROM sources WHERE category = 'youtube' AND is_active = 1 ORDER BY name"
+        """SELECT * FROM sources WHERE source_type = 'youtube' AND is_active = 1
+           AND archived_at IS NULL ORDER BY name"""
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -570,14 +634,16 @@ def upsert_youtube_source(
     ).fetchone()
     if row:
         conn.execute(
-            "UPDATE sources SET name=?, site_url=?, is_active=1 WHERE id=?",
+            """UPDATE sources SET name=?, site_url=?, source_type='youtube',
+                      is_active=1, archived_at=NULL WHERE id=?""",
             (name, channel_url, row["id"]),
         )
         return row["id"]
     else:
         cur = conn.execute(
-            """INSERT INTO sources (name, feed_url, site_url, category, is_active)
-               VALUES (?, ?, ?, 'youtube', 1)""",
+            """INSERT INTO sources
+               (name, feed_url, site_url, category, source_type, is_active)
+               VALUES (?, ?, ?, 'youtube', 'youtube', 1)""",
             (name, feed_url, channel_url),
         )
         return cur.lastrowid
@@ -592,7 +658,7 @@ def get_youtube_articles_for_channel(
            FROM articles a
            JOIN sources s ON a.source_id = s.id
            WHERE a.source_id = ?
-             AND s.category = 'youtube'
+             AND s.source_type = 'youtube'
              AND a.status = 'summarized'
            ORDER BY a.published_at DESC
            LIMIT ?""",
@@ -609,9 +675,10 @@ def get_youtube_articles_for_date(
         """SELECT a.*, s.name as source_name
            FROM articles a
            JOIN sources s ON a.source_id = s.id
-           WHERE s.category = 'youtube'
+           WHERE s.source_type = 'youtube'
              AND a.status = 'summarized'
-             AND date(a.fetched_at) = ?
+             AND a.published_date_ist = ?
+             AND a.excluded_at IS NULL
            ORDER BY a.published_at DESC""",
         (date_str,),
     ).fetchall()
@@ -632,7 +699,7 @@ def insert_youtube_digest(
     channel_count: int,
 ) -> int:
     """Insert or update a YouTube digest for a given date. Returns digest id."""
-    cur = conn.execute(
+    conn.execute(
         """INSERT INTO youtube_digests (date, title, summary_text, video_count, channel_count)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(date) DO UPDATE SET
@@ -644,8 +711,6 @@ def insert_youtube_digest(
                updated_at = CURRENT_TIMESTAMP""",
         (date_str, title, summary_text, video_count, channel_count),
     )
-    if cur.lastrowid:
-        return cur.lastrowid
     row = conn.execute(
         "SELECT id FROM youtube_digests WHERE date = ?", (date_str,)
     ).fetchone()
@@ -729,9 +794,10 @@ def get_youtube_channel_counts_for_date(
         """SELECT a.source_id, COUNT(*) as cnt
            FROM articles a
            JOIN sources s ON a.source_id = s.id
-           WHERE s.category = 'youtube'
+           WHERE s.source_type = 'youtube'
              AND a.status = 'summarized'
-             AND date(a.fetched_at) = ?
+             AND a.published_date_ist = ?
+             AND a.excluded_at IS NULL
            GROUP BY a.source_id""",
         (date_str,),
     ).fetchall()
@@ -747,9 +813,9 @@ def get_recent_youtube_articles_for_channel(
            FROM articles a
            JOIN sources s ON a.source_id = s.id
            WHERE a.source_id = ?
-             AND s.category = 'youtube'
+             AND s.source_type = 'youtube'
              AND a.status = 'summarized'
-             AND a.fetched_at >= datetime('now', ?)
+             AND a.published_at >= datetime('now', ?)
            ORDER BY a.published_at DESC
            LIMIT 20""",
         (source_id, f"-{days} days"),
@@ -773,7 +839,7 @@ def get_recent_youtube_articles(
         """SELECT a.*, s.name as source_name
            FROM articles a
            JOIN sources s ON a.source_id = s.id
-           WHERE s.category = 'youtube'
+           WHERE s.source_type = 'youtube'
              AND a.status = 'summarized'
              AND a.fetched_at >= datetime('now', ?)
            ORDER BY a.published_at DESC
@@ -781,3 +847,165 @@ def get_recent_youtube_articles(
         (f"-{days} days", limit),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Durable orchestration
+# ---------------------------------------------------------------------------
+
+
+def create_run(
+    conn: sqlite3.Connection,
+    trigger_type: str,
+    source_ids: list[int] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> int:
+    if source_ids is None:
+        rows = conn.execute(
+            """SELECT * FROM sources WHERE is_active = 1 AND archived_at IS NULL
+               ORDER BY source_type, name"""
+        ).fetchall()
+    elif source_ids:
+        placeholders = ",".join("?" for _ in source_ids)
+        rows = conn.execute(
+            f"""SELECT * FROM sources WHERE id IN ({placeholders})
+                AND archived_at IS NULL ORDER BY source_type, name""",
+            source_ids,
+        ).fetchall()
+        if len(rows) != len(set(source_ids)):
+            raise ValueError("One or more selected sources do not exist or are archived")
+    else:
+        raise ValueError("At least one source must be selected")
+    cur = conn.execute(
+        "INSERT INTO runs(trigger_type, start_date, end_date) VALUES (?, ?, ?)",
+        (trigger_type, start_date, end_date),
+    )
+    run_id = cur.lastrowid
+    for source in rows:
+        conn.execute(
+            """INSERT INTO run_sources
+               (run_id, source_id, source_type, source_name, source_url)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                run_id,
+                source["id"],
+                source["source_type"],
+                source["name"],
+                source["feed_url"],
+            ),
+        )
+    conn.commit()
+    return run_id
+
+
+def claim_next_run(conn: sqlite3.Connection, worker_id: str, lease_minutes: int) -> dict | None:
+    conn.execute("BEGIN IMMEDIATE")
+    row = conn.execute(
+        """SELECT * FROM runs
+           WHERE status = 'queued'
+              OR (status = 'running' AND lease_expires_at < CURRENT_TIMESTAMP)
+           ORDER BY created_at LIMIT 1"""
+    ).fetchone()
+    if not row:
+        conn.rollback()
+        return None
+    conn.execute(
+        """UPDATE runs SET status='running', stage='starting',
+                  started_at=COALESCE(started_at, CURRENT_TIMESTAMP), lease_owner=?,
+                  lease_expires_at=datetime('now', ?) WHERE id=?""",
+        (worker_id, f"+{lease_minutes} minutes", row["id"]),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM runs WHERE id=?", (row["id"],)).fetchone())
+
+
+def update_run(
+    conn: sqlite3.Connection,
+    run_id: int,
+    *,
+    stage: str | None = None,
+    status: str | None = None,
+    counters: dict | None = None,
+    errors: list | None = None,
+) -> None:
+    fields, values = [], []
+    for field, value in (("stage", stage), ("status", status)):
+        if value is not None:
+            fields.append(f"{field}=?")
+            values.append(value)
+    if counters is not None:
+        fields.append("counters_json=?")
+        values.append(json.dumps(counters))
+    if errors is not None:
+        fields.append("errors_json=?")
+        values.append(json.dumps(errors))
+    if status in {"completed", "partial", "failed", "no_new_content"}:
+        fields.extend(["finished_at=CURRENT_TIMESTAMP", "lease_owner=NULL", "lease_expires_at=NULL"])
+    if fields:
+        values.append(run_id)
+        conn.execute(f"UPDATE runs SET {', '.join(fields)} WHERE id=?", values)
+        conn.commit()
+
+
+def get_run(conn: sqlite3.Connection, run_id: int) -> dict | None:
+    row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+    if not row:
+        return None
+    result = dict(row)
+    result["counters"] = json.loads(result.pop("counters_json") or "{}")
+    result["errors"] = json.loads(result.pop("errors_json") or "[]")
+    result["sources"] = [
+        dict(r) for r in conn.execute(
+            "SELECT * FROM run_sources WHERE run_id=? ORDER BY source_type, source_name",
+            (run_id,),
+        ).fetchall()
+    ]
+    result["affected_dates"] = [
+        dict(r) for r in conn.execute(
+            "SELECT * FROM run_affected_dates WHERE run_id=? ORDER BY digest_date, source_type",
+            (run_id,),
+        ).fetchall()
+    ]
+    return result
+
+
+def list_runs(conn: sqlite3.Connection, limit: int = 25) -> list[dict]:
+    return [
+        get_run(conn, row["id"])
+        for row in conn.execute("SELECT id FROM runs ORDER BY id DESC LIMIT ?", (limit,))
+    ]
+
+
+def attach_run_item(conn: sqlite3.Connection, run_id: int, article_id: int, discovered: bool) -> None:
+    conn.execute(
+        """INSERT INTO run_items(run_id, article_id, discovered)
+           VALUES (?, ?, ?) ON CONFLICT(run_id, article_id) DO UPDATE SET
+           discovered=MAX(discovered, excluded.discovered)""",
+        (run_id, article_id, int(discovered)),
+    )
+
+
+def enqueue_transcript_job(conn: sqlite3.Connection, article_id: int, video_id: str) -> None:
+    conn.execute(
+        """INSERT OR IGNORE INTO transcript_jobs(article_id, video_id)
+           VALUES (?, ?)""",
+        (article_id, video_id),
+    )
+
+
+def get_youtube_adjacent_dates(
+    conn: sqlite3.Connection, date_str: str
+) -> tuple[str | None, str | None]:
+    prev_row = conn.execute(
+        "SELECT date FROM youtube_digests WHERE date < ? ORDER BY date DESC LIMIT 1",
+        (date_str,),
+    ).fetchone()
+    next_row = conn.execute(
+        "SELECT date FROM youtube_digests WHERE date > ? ORDER BY date ASC LIMIT 1",
+        (date_str,),
+    ).fetchone()
+    return (
+        prev_row["date"] if prev_row else None,
+        next_row["date"] if next_row else None,
+    )

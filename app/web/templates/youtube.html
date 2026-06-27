@@ -8,7 +8,7 @@
 {% if channels %}
 {% set active_channels = channels | selectattr('is_active', 'equalto', 1) | list %}
 {% set paused_channels = channels | selectattr('is_active', 'equalto', 0) | list %}
-<a href="/youtube"
+<a href="/youtube?date={{ display_date }}"
        class="sidebar-sublink {% if not selected_channel %}active{% endif %}">
         <span class="sublink-label">All Channels</span>
     </a>
@@ -41,12 +41,12 @@
 {% set active_channels = channels | selectattr('is_active', 'equalto', 1) | list %}
 {% set paused_channels = channels | selectattr('is_active', 'equalto', 0) | list %}
 <div class="channel-pills-mobile">
-    <a href="/youtube"
+    <a href="/youtube?date={{ display_date }}"
        class="channel-pill {% if not selected_channel %}active{% endif %}">
         All
     </a>
     {% for ch in active_channels %}
-    <a href="/youtube?channel={{ ch.id }}"
+    <a href="/youtube?channel={{ ch.id }}&date={{ display_date }}"
        class="channel-pill {% if selected_channel == ch.id %}active{% endif %}">
         {{ ch.name }}
         {% set cnt = channel_counts.get(ch.id, 0) %}
@@ -63,13 +63,25 @@
 {% endif %}
 
 {# ── Header ── #}
-<div class="youtube-header">
-    <div>
-        <h1>🎬 YouTube Daily Digest</h1>
-        <span class="youtube-date">{{ display_date_pretty }}</span>
-    </div>
-    {% if last_scrape %}
-    <span class="youtube-scrape-info">🕐 Last scrape {{ last_scrape.started_at[:16] }} · {{ channel_counts.values() | sum }} new videos</span>
+{% if last_scrape %}
+<div class="status-bar">
+    <span class="stat">🕐 <strong>Last scrape:</strong> {{ last_scrape.started_at[:16] }}</span>
+    <span class="stat">🎬 <strong>{{ channel_counts.values() | sum }}</strong> new videos</span>
+</div>
+{% endif %}
+<div class="date-nav">
+    {% if prev_date %}
+    <a href="/youtube?date={{ prev_date }}{% if selected_channel %}&channel={{ selected_channel }}{% endif %}" class="date-nav-arrow">← {{ prev_date }}</a>
+    {% else %}
+    <span class="date-nav-arrow disabled">←</span>
+    {% endif %}
+
+    <h1>🎬 {{ display_date_pretty }}</h1>
+
+    {% if next_date %}
+    <a href="/youtube?date={{ next_date }}{% if selected_channel %}&channel={{ selected_channel }}{% endif %}" class="date-nav-arrow">{{ next_date }} →</a>
+    {% else %}
+    <span class="date-nav-arrow disabled">→</span>
     {% endif %}
 </div>
 

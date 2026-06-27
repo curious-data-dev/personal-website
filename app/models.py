@@ -11,9 +11,11 @@ class Source:
     feed_url: str = ""
     site_url: str = ""
     category: str = ""
+    source_type: str = "rss"
     is_active: bool = True
     last_fetched_at: datetime | None = None
     created_at: datetime | None = None
+    archived_at: datetime | None = None
 
 
 @dataclass
@@ -27,6 +29,7 @@ class Article:
     summary_text: str = ""
     author: str = ""
     published_at: datetime | None = None
+    published_date_ist: str | None = None
     fetched_at: datetime | None = None
     status: str = "raw"  # 'raw' | 'summarizing' | 'summarized' | 'failed'
     chunk_count: int = 0

@@ -39,7 +39,14 @@ from app.database import (
     get_youtube_channel_counts_for_date,
     get_recent_youtube_articles_for_channel,
     get_recent_youtube_articles,
+    get_all_youtube_digests,
+    get_youtube_digest_years,
+    get_youtube_adjacent_dates,
+    create_run,
+    get_run,
+    list_runs,
 )
+from app.orchestration import execute_run
 from app.scraper.service import run_scrape
 from app.scraper.youtube.service import run_youtube_scrape
 from app.summarizer.service import run_summarization
@@ -283,7 +290,7 @@ async def sources_list(request: Request):
     """List all RSS sources and their status."""
     conn = get_db()
     try:
-        sources = get_all_sources(conn)
+        sources = [s for s in get_all_sources(conn) if s.get("source_type") == "rss"]
         return templates.TemplateResponse(
             request,
             "sources.html",
@@ -307,7 +314,7 @@ async def health():
 
 
 @router.get("/youtube", response_class=HTMLResponse)
-async def youtube_daily(request: Request, channel: int | None = None):
+async def youtube_daily(request: Request, channel: int | None = None, date: str | None = None):
     """YouTube insights — daily digest view with vertical channel sidebar.
 
     All Channels: shows the synthesized YouTube digest card + collapsible video footnotes.
@@ -317,18 +324,19 @@ async def youtube_daily(request: Request, channel: int | None = None):
     conn = get_db()
     try:
         today = _today_ist_str()
+        requested_date = date or today
         channels = get_youtube_sources(conn)
-        channel_counts = get_youtube_channel_counts_for_date(conn, today)
+        channel_counts = get_youtube_channel_counts_for_date(conn, requested_date)
         last_scrape = get_last_scrape(conn)
 
         digest = None
         digest_videos = []
         recent_videos = []
-        display_date = today
+        display_date = requested_date
 
         if channel:
             # ── Per-channel view ──
-            digest = get_youtube_digest_for_date(conn, today)
+            digest = get_youtube_digest_for_date(conn, requested_date)
             if digest:
                 display_date = digest["date"]
                 all_videos = get_youtube_digest_videos(conn, digest["id"])
@@ -338,13 +346,14 @@ async def youtube_daily(request: Request, channel: int | None = None):
                 recent_videos = get_recent_youtube_articles_for_channel(conn, channel, days=7)
         else:
             # ── All Channels view ──
-            digest = get_youtube_digest_for_date(conn, today)
+            digest = get_youtube_digest_for_date(conn, requested_date)
             if digest:
                 display_date = digest["date"]
                 digest_videos = get_youtube_digest_videos(conn, digest["id"])
             else:
                 recent_videos = get_recent_youtube_articles(conn, limit=20, days=7)
 
+        prev_date, next_date = get_youtube_adjacent_dates(conn, requested_date)
         return templates.TemplateResponse(
             request,
             "youtube.html",
@@ -360,8 +369,25 @@ async def youtube_daily(request: Request, channel: int | None = None):
                 "today_pretty": _format_date_pretty(today),
                 "display_date": display_date,
                 "display_date_pretty": _format_date_pretty(display_date),
+                "prev_date": prev_date,
+                "next_date": next_date,
                 "scrape_time": f"{settings.scrape_cron_hour:02d}:{settings.scrape_cron_minute:02d}",
             },
+        )
+    finally:
+        conn.close()
+
+
+@router.get("/youtube/history", response_class=HTMLResponse)
+async def youtube_history(request: Request, year: Optional[int] = None, month: Optional[int] = None):
+    conn = get_db()
+    try:
+        years = get_youtube_digest_years(conn)
+        year = year or (years[0] if years else datetime.now().year)
+        return templates.TemplateResponse(
+            request, "youtube_history.html",
+            {"digests": get_all_youtube_digests(conn, year, month), "years": years,
+             "selected_year": year, "selected_month": month},
         )
     finally:
         conn.close()
@@ -375,7 +401,8 @@ async def settings_page(request: Request):
 
     conn = get_db()
     try:
-        rss_sources = [s for s in get_all_sources(conn) if s.get("category") != "youtube"]
+        all_sources = get_all_sources(conn)
+        rss_sources = [s for s in all_sources if s.get("source_type") == "rss"]
         youtube_sources = get_youtube_sources(conn)
         return templates.TemplateResponse(
             request,
@@ -383,6 +410,7 @@ async def settings_page(request: Request):
             {
                 "rss_sources": rss_sources,
                 "youtube_sources": youtube_sources,
+                "all_sources": all_sources,
             },
         )
     finally:
@@ -419,17 +447,17 @@ async def api_add_youtube_source(request: Request):
     try:
         feed_url = _get_rss_url(channel_id)
         existing = conn.execute(
-            "SELECT id, category FROM sources WHERE feed_url = ?", (feed_url,)
+            "SELECT id, source_type FROM sources WHERE feed_url = ?", (feed_url,)
         ).fetchone()
         if existing:
-            if existing["category"] == "youtube":
+            if existing["source_type"] == "youtube":
                 raise HTTPException(
                     status_code=409,
                     detail=f"Channel already added (source #{existing['id']}).",
                 )
             # Source exists with non-youtube category — recategorize it
             conn.execute(
-                "UPDATE sources SET category = 'youtube', is_active = 1 WHERE id = ?",
+                "UPDATE sources SET category = 'youtube', source_type='youtube', is_active = 1, archived_at=NULL WHERE id = ?",
                 (existing["id"],),
             )
             conn.commit()
@@ -476,7 +504,7 @@ async def api_toggle_youtube_source(request: Request, source_id: int):
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT id, is_active FROM sources WHERE id = ? AND category = 'youtube'",
+            "SELECT id, is_active FROM sources WHERE id = ? AND source_type = 'youtube' AND archived_at IS NULL",
             (source_id,),
         ).fetchone()
         if not row:
@@ -499,7 +527,7 @@ async def api_delete_youtube_source(request: Request, source_id: int):
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT id FROM sources WHERE id = ? AND category = 'youtube'",
+            "SELECT id FROM sources WHERE id = ? AND source_type = 'youtube' AND archived_at IS NULL",
             (source_id,),
         ).fetchone()
         if not row:
@@ -564,6 +592,28 @@ async def api_add_source(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    source_type = (body.get("source_type") or "rss").strip().lower()
+    if source_type == "youtube":
+        handle = (body.get("handle") or body.get("channel_url") or "").strip()
+        if not handle:
+            raise HTTPException(status_code=400, detail="handle or channel_url is required")
+        from app.scraper.youtube.service import _resolve_channel_id
+        channel_id = _resolve_channel_id(handle)
+        if not channel_id:
+            raise HTTPException(status_code=400, detail="Could not resolve YouTube channel")
+        conn = get_db()
+        try:
+            source_id = upsert_youtube_source(
+                conn, (body.get("name") or handle).strip(), channel_id,
+                body.get("channel_url") or f"https://www.youtube.com/channel/{channel_id}",
+            )
+            conn.commit()
+            return JSONResponse({"ok": True, "id": source_id, "source_type": "youtube"}, status_code=201)
+        finally:
+            conn.close()
+    if source_type != "rss":
+        raise HTTPException(status_code=400, detail="source_type must be rss or youtube")
+
     name = (body.get("name") or "").strip()
     feed_url = (body.get("feed_url") or "").strip()
     site_url = (body.get("site_url") or "").strip()
@@ -587,6 +637,7 @@ async def api_add_source(request: Request):
     try:
         source_id = upsert_source(conn, name=name, feed_url=feed_url,
                                    site_url=site_url, category=category)
+        conn.execute("UPDATE sources SET source_type='rss', archived_at=NULL WHERE feed_url=?", (feed_url,))
         conn.commit()
         return JSONResponse(
             {"ok": True, "id": source_id, "name": name},
@@ -596,19 +647,145 @@ async def api_add_source(request: Request):
         conn.close()
 
 
+@router.get("/api/sources")
+async def api_list_sources(request: Request, type: str | None = None, state: str | None = None):
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    try:
+        conditions, params = [], []
+        if state == "archived":
+            conditions.append("archived_at IS NOT NULL")
+        else:
+            conditions.append("archived_at IS NULL")
+        if type in {"rss", "youtube"}:
+            conditions.append("source_type=?"); params.append(type)
+        if state == "active":
+            conditions.append("is_active=1")
+        elif state == "inactive":
+            conditions.append("is_active=0")
+        rows = conn.execute(
+            "SELECT * FROM sources WHERE " + " AND ".join(conditions) + " ORDER BY source_type, name",
+            params,
+        ).fetchall()
+        return JSONResponse({"sources": [dict(r) for r in rows]})
+    finally:
+        conn.close()
+
+
+@router.post("/api/runs")
+async def api_create_run(request: Request):
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+    try:
+        body = await request.json()
+        source_ids = [int(value) for value in body.get("source_ids", [])]
+        start_date = body.get("start_date") or None
+        end_date = body.get("end_date") or None
+        if start_date and end_date and start_date > end_date:
+            raise HTTPException(status_code=400, detail="start_date must not be after end_date")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid run request")
+    conn = get_db()
+    try:
+        try:
+            run_id = create_run(conn, "manual", source_ids, start_date, end_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        # Execute the run in a background thread (no worker needed)
+        def _run():
+            conn2 = get_db()
+            try:
+                run = get_run(conn2, run_id)
+                if run:
+                    execute_run(run)
+            finally:
+                conn2.close()
+        threading.Thread(target=_run, daemon=True).start()
+        return JSONResponse(
+            {"id": run_id, "status": "started", "status_url": f"/api/runs/{run_id}"},
+            status_code=202,
+        )
+    finally:
+        conn.close()
+
+
+@router.get("/api/runs")
+async def api_list_runs(request: Request, limit: int = 25):
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    try:
+        return JSONResponse({"runs": list_runs(conn, min(max(limit, 1), 100))})
+    finally:
+        conn.close()
+
+
+@router.get("/api/runs/{run_id}")
+async def api_get_run(request: Request, run_id: int):
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    try:
+        run = get_run(conn, run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        for affected in run["affected_dates"]:
+            prefix = "/digest/" if affected["source_type"] == "rss" else "/youtube?date="
+            affected["url"] = prefix + affected["digest_date"]
+        return JSONResponse(run)
+    finally:
+        conn.close()
+
+
+@router.post("/api/runs/{run_id}/retry")
+async def api_retry_run(request: Request, run_id: int):
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    try:
+        old = get_run(conn, run_id)
+        if not old:
+            raise HTTPException(status_code=404, detail="Run not found")
+        source_ids = [row["source_id"] for row in old["sources"]]
+        conn.execute(
+            """UPDATE transcript_jobs SET status='pending', next_attempt_at=NULL, attempt_count=0
+               WHERE article_id IN (SELECT article_id FROM run_items WHERE run_id=?)
+                 AND status IN ('retry','failed','unavailable')""", (run_id,),
+        )
+        conn.execute(
+            """UPDATE articles SET status=CASE WHEN raw_text!='' THEN 'raw' ELSE 'pending_transcript' END
+               WHERE id IN (SELECT article_id FROM run_items WHERE run_id=?) AND status='failed'""",
+            (run_id,),
+        )
+        new_id = create_run(conn, "manual", source_ids, old["start_date"], old["end_date"])
+        conn.execute(
+            """INSERT OR IGNORE INTO run_items(run_id, article_id, discovered, processing_status)
+               SELECT ?, article_id, 0, 'retry' FROM run_items WHERE run_id=?""",
+            (new_id, run_id),
+        )
+        conn.commit()
+        return JSONResponse({"id": new_id, "status": "queued"}, status_code=202)
+    finally:
+        conn.close()
+
+
 @router.delete("/api/sources/{source_id}")
 async def api_delete_source(request: Request, source_id: int):
-    """Delete a source and cascade-delete all its articles."""
+    """Archive a source while preserving its content and history."""
     if not _check_session(request):
         raise HTTPException(status_code=401)
 
     conn = get_db()
     try:
-        articles_deleted = delete_source(conn, source_id)
+        articles_preserved = delete_source(conn, source_id)
         conn.commit()
         return JSONResponse({
             "ok": True,
-            "articles_deleted": articles_deleted,
+            "archived": True,
+            "articles_preserved": articles_preserved,
         })
     finally:
         conn.close()
@@ -885,6 +1062,28 @@ async def regenerate_digest(request: Request, date_str: str):
     })
 
 
+@router.post("/admin/regenerate-youtube-digest/{date_str}")
+async def regenerate_youtube_digest(request: Request, date_str: str):
+    if not _check_session(request):
+        raise HTTPException(status_code=401)
+    from app.summarizer.service import _generate_youtube_daily_digest
+
+    def _run():
+        conn = get_db()
+        try:
+            _generate_youtube_daily_digest(conn, date_str)
+            conn.commit()
+            _set_job_status(f"youtube-{date_str}", "Done")
+        except Exception as exc:
+            conn.rollback()
+            _set_job_status(f"youtube-{date_str}", f"Failed: {str(exc)[:100]}")
+        finally:
+            conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return JSONResponse({"ok": True, "status": "started", "date": date_str})
+
+
 @router.get("/admin/status")
 async def admin_status(request: Request):
     """JSON endpoint showing per-date scrape/summarize/digest status."""
@@ -896,7 +1095,7 @@ async def admin_status(request: Request):
         # Per-date article and digest status
         rows = conn.execute("""
             SELECT
-                date(a.fetched_at) as d,
+                a.published_date_ist as d,
                 COUNT(*) as total,
                 SUM(CASE WHEN a.status = 'raw' THEN 1 ELSE 0 END) as raw_count,
                 SUM(CASE WHEN a.status = 'summarized' THEN 1 ELSE 0 END) as summarized,
@@ -904,7 +1103,7 @@ async def admin_status(request: Request):
                 SUM(CASE WHEN a.status = 'summarizing' THEN 1 ELSE 0 END) as in_progress,
                 dg.id IS NOT NULL as has_digest
             FROM articles a
-            LEFT JOIN daily_digests dg ON date(a.fetched_at) = dg.date
+            LEFT JOIN daily_digests dg ON a.published_date_ist = dg.date
             GROUP BY d
             ORDER BY d DESC
             LIMIT 60

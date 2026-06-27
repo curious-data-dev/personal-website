@@ -6,6 +6,8 @@ venv/
 .env
 .DS_Store
 data/*.db
+data/backups/
+nul
 
 # generated previews / artifacts
 out.html
