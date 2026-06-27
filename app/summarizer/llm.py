@@ -221,7 +221,10 @@ def _call_deepseek(prompt: str, max_tokens: int = 4096, model: Optional[str] = N
             },
         )
         response.raise_for_status()
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            raise RuntimeError(f"DeepSeek returned invalid JSON: {response.text[:200]}")
 
     choices = data.get("choices", [])
     if not choices:
