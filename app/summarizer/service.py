@@ -111,7 +111,8 @@ def run_summarization(
                     on_progress(f"Summarizing ({idx + 1}/{total_articles}): {short_title}")
 
                 logger.info(f"Summarizing article #{article_id}: {title[:80]}")
-                summary, chunk_count, provider = _summarize_article(raw_text)
+                prompt_name = "youtube_summary" if item_source_type == "youtube" else "single_summary"
+                summary, chunk_count, provider = _summarize_article(raw_text, prompt_name=prompt_name)
 
                 update_article_summary(conn, article_id, summary, chunk_count, provider)
                 if published_date:
@@ -198,7 +199,7 @@ def run_summarization(
 # ---------------------------------------------------------------------------
 
 
-def _summarize_article(raw_text: str) -> tuple[str, int, str]:
+def _summarize_article(raw_text: str, prompt_name: str = "single_summary") -> tuple[str, int, str]:
     """Summarize a single article using map-reduce if it's long.
 
     Returns (summary_text, chunk_count, provider_used).
@@ -209,7 +210,7 @@ def _summarize_article(raw_text: str) -> tuple[str, int, str]:
 
     # If short enough, summarize directly
     if len(raw_text) <= settings.chunk_size:
-        summary = call_llm(prompt_manager.get_prompt("single_summary").format(text=raw_text))
+        summary = call_llm(prompt_manager.get_prompt(prompt_name).format(text=raw_text))
         return summary, 1, get_last_provider()
 
     # Map-Reduce: chunk → parallel summarize → synthesize
@@ -218,7 +219,7 @@ def _summarize_article(raw_text: str) -> tuple[str, int, str]:
         return "", 0, ""
 
     if len(chunks) == 1:
-        summary = call_llm(prompt_manager.get_prompt("single_summary").format(text=chunks[0]))
+        summary = call_llm(prompt_manager.get_prompt(prompt_name).format(text=chunks[0]))
         return summary, 1, get_last_provider()
 
     # MAP phase: summarize each chunk in parallel
