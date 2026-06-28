@@ -76,8 +76,23 @@
         </div>
     </aside>
 
-    {# ── Collapsed sidebar override styles ── #}
+    {# ── CSS custom properties for JS-generated HTML (inherited from old style.css) ── #}
     <style>
+        :root {
+            --ink: #2563eb;
+            --ink-light: #60a5fa;
+            --text-muted: #6b7280;
+            --bg: #f3f4f6;
+            --border: #d1d5db;
+        }
+        [data-theme="dark"] {
+            --ink: #60a5fa;
+            --ink-light: #93c5fd;
+            --text-muted: #94a3b8;
+            --bg: #1e293b;
+            --border: #334155;
+        }
+
         .sidebar-collapsed #sidebar { width: 64px; }
         .sidebar-collapsed #sidebar .sidebar-label { display: none; }
         .sidebar-collapsed #sidebar nav .sidebar-link { justify-content: center; padding-left: 0.25rem; padding-right: 0.25rem; }
