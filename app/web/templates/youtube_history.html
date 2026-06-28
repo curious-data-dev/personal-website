@@ -1,18 +1,44 @@
 {% extends "base.html" %}
 {% block title %}YouTube History{% endblock %}
+
 {% block content %}
-<h1>YouTube Digest History</h1>
-<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
-{% for y in years %}<a href="/youtube/history?year={{ y }}" class="year-tab {% if y == selected_year %}active{% endif %}">{{ y }}</a>{% endfor %}
+<h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-1">🎬 YouTube Digest History</h1>
+<p class="text-sm text-gray-500 dark:text-slate-400 mb-6">Browse past YouTube digests</p>
+
+<div class="flex flex-wrap gap-1.5 mb-4">
+{% for y in years %}
+<a href="/youtube/history?year={{ y }}" class="inline-flex rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors
+    {% if y == selected_year %}bg-blue-600 text-white{% else %}text-gray-500 hover:text-blue-600 border border-gray-200 dark:border-slate-700 dark:text-slate-400 dark:hover:text-blue-400{% endif %}">
+    {{ y }}
+</a>
+{% endfor %}
 </div>
-<select onchange="const m=this.value;location.href=m?'/youtube/history?year={{ selected_year }}&month='+m:'/youtube/history?year={{ selected_year }}'">
-    <option value="">All months</option>
-    {% for m in range(1,13) %}<option value="{{ m }}" {% if selected_month == m %}selected{% endif %}>{{ '%02d'|format(m) }}</option>{% endfor %}
-</select>
-<div class="history-grid" style="margin-top:1rem;">
-{% for d in digests %}<a href="/youtube?date={{ d.date }}" class="history-card">
-    <div class="history-card-date">{{ d.date }}</div><div class="history-card-title">{{ d.title or d.date }}</div>
-    <div class="history-card-stats">{{ d.video_count }} videos · {{ d.channel_count }} channels</div>
-</a>{% else %}<div class="empty-state"><h3>No YouTube digests for this period</h3></div>{% endfor %}
+
+<div class="mb-6">
+    <select onchange="const m=this.value;location.href=m?'/youtube/history?year={{ selected_year }}&month='+m:'/youtube/history?year={{ selected_year }}'"
+            class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        <option value="">All months</option>
+        {% for m in range(1,13) %}
+        <option value="{{ m }}" {% if selected_month == m %}selected{% endif %}>{{ '%02d'|format(m) }}</option>
+        {% endfor %}
+    </select>
 </div>
+
+{% if digests %}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+{% for d in digests %}
+<a href="/youtube?date={{ d.date }}" class="block rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 hover:shadow-md hover:-translate-y-0.5 transition-all no-underline">
+    <div class="text-xs text-gray-400 dark:text-slate-500 mb-1">{{ d.date }}</div>
+    <div class="font-semibold text-gray-900 dark:text-white mb-1.5">{{ d.title or d.date }}</div>
+    <div class="text-xs text-gray-500 dark:text-slate-400">{{ d.video_count }} videos · {{ d.channel_count }} channels</div>
+</a>
+{% endfor %}
+</div>
+{% else %}
+<div class="flex flex-col items-center justify-center py-16 text-center">
+    <div class="text-5xl mb-3">📭</div>
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">No YouTube digests for this period</h3>
+</div>
+{% endif %}
+
 {% endblock %}

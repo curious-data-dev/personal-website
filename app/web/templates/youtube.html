@@ -3,128 +3,158 @@
 
 {% block head_extra %}{% endblock %}
 
-{# ── Channel list as sidebar subnav (only on YouTube page) ── #}
+{# ── Channel list as sidebar subnav ── #}
 {% block sidebar_subnav %}
 {% if channels %}
 {% set active_channels = channels | selectattr('is_active', 'equalto', 1) | list %}
 {% set paused_channels = channels | selectattr('is_active', 'equalto', 0) | list %}
 <a href="/youtube?date={{ display_date }}"
-       class="sidebar-sublink {% if not selected_channel %}active{% endif %}">
-        <span class="sublink-label">All Channels</span>
-    </a>
-    {% for ch in active_channels %}
-    <a href="/youtube?channel={{ ch.id }}&date={{ display_date }}"
-       class="sidebar-sublink {% if selected_channel == ch.id %}active{% endif %}"
-       title="{{ ch.name }}">
-        <span class="sublink-label">{{ ch.name }}</span>
-        {% set cnt = channel_counts.get(ch.id, 0) %}
-        {% if cnt > 0 %}<span class="sublink-count">{{ cnt }}</span>{% endif %}
-    </a>
-    {% endfor %}
-    {% if paused_channels %}
-    <div class="sublink-divider">Paused</div>
-    {% for ch in paused_channels %}
-    <a href="/youtube?channel={{ ch.id }}&date={{ display_date }}"
-       class="sidebar-sublink paused {% if selected_channel == ch.id %}active{% endif %}"
-       title="{{ ch.name }}">
-        <span class="sublink-label">{{ ch.name }}</span>
-    </a>
-    {% endfor %}
-    {% endif %}
+   class="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-md text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors {% if not selected_channel %}text-blue-600 dark:text-blue-400 font-semibold bg-blue-50 dark:bg-blue-950{% endif %}">
+    All Channels
+</a>
+{% for ch in active_channels %}
+<a href="/youtube?channel={{ ch.id }}&date={{ display_date }}"
+   class="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-md text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors {% if selected_channel == ch.id %}text-blue-600 dark:text-blue-400 font-semibold bg-blue-50 dark:bg-blue-950{% endif %}"
+   title="{{ ch.name }}">
+    {{ ch.name }}
+    {% set cnt = channel_counts.get(ch.id, 0) %}
+    {% if cnt > 0 %}<span class="ml-auto text-[10px] font-semibold bg-blue-600 text-white rounded-full px-1.5 py-px leading-relaxed">{{ cnt }}</span>{% endif %}
+</a>
+{% endfor %}
+{% if paused_channels %}
+<div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 px-2.5 py-1.5">Paused</div>
+{% for ch in paused_channels %}
+<a href="/youtube?channel={{ ch.id }}&date={{ display_date }}"
+   class="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-md text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors opacity-50 hover:opacity-75 {% if selected_channel == ch.id %}text-blue-600 dark:text-blue-400 font-semibold{% endif %}"
+   title="{{ ch.name }}">
+    {{ ch.name }}
+</a>
+{% endfor %}
+{% endif %}
 {% endif %}
 {% endblock %}
 
 {% block content %}
 
-{# ── Mobile channel pills (hidden on desktop) ── #}
+{# ── Mobile channel pills ── #}
 {% if channels %}
 {% set active_channels = channels | selectattr('is_active', 'equalto', 1) | list %}
 {% set paused_channels = channels | selectattr('is_active', 'equalto', 0) | list %}
-<div class="channel-pills-mobile">
+<div class="flex flex-wrap gap-1.5 mb-6 pb-4 border-b border-gray-100 dark:border-slate-800 md:hidden">
     <a href="/youtube?date={{ display_date }}"
-       class="channel-pill {% if not selected_channel %}active{% endif %}">
+       class="inline-flex rounded-full px-3 py-1 text-xs font-medium transition-colors {% if not selected_channel %}bg-blue-600 text-white{% else %}border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400{% endif %}">
         All
     </a>
     {% for ch in active_channels %}
     <a href="/youtube?channel={{ ch.id }}&date={{ display_date }}"
-       class="channel-pill {% if selected_channel == ch.id %}active{% endif %}">
+       class="inline-flex rounded-full px-3 py-1 text-xs font-medium transition-colors {% if selected_channel == ch.id %}bg-blue-600 text-white{% else %}border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400{% endif %}">
         {{ ch.name }}
         {% set cnt = channel_counts.get(ch.id, 0) %}
-        {% if cnt > 0 %}<span class="pill-count">({{ cnt }})</span>{% endif %}
+        {% if cnt > 0 %}<span class="ml-1 opacity-80">({{ cnt }})</span>{% endif %}
     </a>
     {% endfor %}
     {% for ch in paused_channels %}
     <a href="/youtube?channel={{ ch.id }}"
-       class="channel-pill paused {% if selected_channel == ch.id %}active{% endif %}">
+       class="inline-flex rounded-full px-3 py-1 text-xs font-medium border border-gray-100 dark:border-slate-800 text-gray-400 dark:text-slate-600 opacity-50">
         {{ ch.name }}
     </a>
     {% endfor %}
 </div>
 {% endif %}
 
-{# ── Header ── #}
+{# ── Status Strip ── #}
 {% if last_scrape %}
-<div class="status-bar">
-    <span class="stat">🕐 <strong>Last scrape:</strong> {{ last_scrape.started_at[:16] }}</span>
-    <span class="stat">🎬 <strong>{{ channel_counts.values() | sum }}</strong> new videos</span>
+<div class="flex flex-wrap items-center gap-2 mb-6">
+    <span class="inline-flex items-center gap-1 rounded-full px-3 py-1 bg-gray-50 dark:bg-slate-800 text-xs text-gray-500 dark:text-slate-400">
+        🕐 <strong class="font-medium text-gray-700 dark:text-slate-300">Last scrape:</strong> {{ last_scrape.started_at[:16] }}
+    </span>
+    <span class="inline-flex items-center gap-1 rounded-full px-3 py-1 bg-gray-50 dark:bg-slate-800 text-xs text-gray-500 dark:text-slate-400">
+        🎬 <strong class="font-medium text-gray-700 dark:text-slate-300">{{ channel_counts.values() | sum }}</strong> new videos
+    </span>
 </div>
 {% endif %}
-<div class="date-nav">
+
+{# ── Date Navigation ── #}
+<div class="flex items-center justify-between mb-8">
     {% if prev_date %}
-    <a href="/youtube?date={{ prev_date }}{% if selected_channel %}&channel={{ selected_channel }}{% endif %}" class="date-nav-arrow">← {{ prev_date }}</a>
+    <a href="/youtube?date={{ prev_date }}{% if selected_channel %}&channel={{ selected_channel }}{% endif %}"
+       class="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 border border-gray-200 dark:border-slate-700 text-sm text-gray-500 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors">
+        ← {{ prev_date }}
+    </a>
     {% else %}
-    <span class="date-nav-arrow disabled">←</span>
+    <span class="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 border border-gray-100 dark:border-slate-800 text-sm text-gray-300 dark:text-slate-600 pointer-events-none opacity-40">←</span>
     {% endif %}
 
-    <h1>🎬 {{ display_date_pretty }}</h1>
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white">🎬 {{ display_date_pretty }}</h1>
 
     {% if next_date %}
-    <a href="/youtube?date={{ next_date }}{% if selected_channel %}&channel={{ selected_channel }}{% endif %}" class="date-nav-arrow">{{ next_date }} →</a>
+    <a href="/youtube?date={{ next_date }}{% if selected_channel %}&channel={{ selected_channel }}{% endif %}"
+       class="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 border border-gray-200 dark:border-slate-700 text-sm text-gray-500 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors">
+        {{ next_date }} →
+    </a>
     {% else %}
-    <span class="date-nav-arrow disabled">→</span>
+    <span class="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 border border-gray-100 dark:border-slate-800 text-sm text-gray-300 dark:text-slate-600 pointer-events-none opacity-40">→</span>
     {% endif %}
 </div>
+
+{# ── Video Card macro ── #}
+{% macro video_card(video, show_source=True, truncate=True) %}
+<article class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 hover:shadow-md transition-shadow">
+    <div class="flex items-start justify-between gap-3">
+        <div class="flex-1 min-w-0">
+            <a href="/article/{{ video.id }}" class="font-semibold text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors leading-snug">
+                {{ video.title }}
+            </a>
+            {% if show_source and video.source_name %}
+            <span class="text-xs text-gray-400 dark:text-slate-500 ml-2">{{ video.source_name }}</span>
+            {% endif %}
+        </div>
+        <a href="{{ video.url }}" target="_blank" rel="noopener"
+           class="inline-flex items-center gap-1 rounded-lg bg-red-600 text-white px-3 py-1.5 text-xs font-medium hover:bg-red-700 transition-colors active:scale-95 flex-shrink-0">
+            ▶ Watch
+        </a>
+    </div>
+    {% if video.summary_text %}
+    <div class="mt-2 text-sm font-serif leading-relaxed text-gray-600 dark:text-slate-400">
+        {% if truncate %}
+        {{ video.summary_text[:400] }}{% if video.summary_text|length > 400 %}... <a href="/article/{{ video.id }}" class="text-blue-600 dark:text-blue-400 hover:underline">read more</a>{% endif %}
+        {% else %}
+        {{ video.summary_text | markdown | safe }}
+        {% endif %}
+    </div>
+    {% endif %}
+    <div class="mt-2 text-xs text-gray-400 dark:text-slate-500">
+        {{ video.published_at[:10] if video.published_at else '' }}
+        {% if video.duration_seconds %} &middot; {{ (video.duration_seconds // 60) | int }} min{% endif %}
+    </div>
+</article>
+{% endmacro %}
 
 {# ── State 1: No channels ── #}
 {% if not channels %}
-<div class="empty-state">
-    <div class="empty-state-icon">🎬</div>
-    <h3>No YouTube channels yet</h3>
-    <p>You're not following any YouTube channels.</p>
-    <p><a href="/settings">Add your first channel →</a></p>
+<div class="flex flex-col items-center justify-center py-16 text-center">
+    <div class="text-6xl mb-4">🎬</div>
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">No YouTube channels yet</h3>
+    <p class="text-gray-500 dark:text-slate-400 mb-3">You're not following any YouTube channels.</p>
+    <p><a href="/settings" class="text-blue-600 hover:underline dark:text-blue-400 font-medium">Add your first channel →</a></p>
 </div>
 
 {# ── State 2: Per-channel, no videos today ── #}
 {% elif selected_channel and not digest_videos %}
-<div class="empty-state">
-    <div class="empty-state-icon">📭</div>
-    <h3>
-        {% for ch in channels if ch.id == selected_channel %}{{ ch.name }}{% endfor %}
-        hasn't posted today.
+<div class="flex flex-col items-center justify-center py-12 text-center">
+    <div class="text-5xl mb-3">📭</div>
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+        {% for ch in channels if ch.id == selected_channel %}{{ ch.name }}{% endfor %} hasn't posted today.
     </h3>
-    <p>The daily scrape runs at <strong>{{ scrape_time }} IST</strong>.</p>
+    <p class="text-sm text-gray-500 dark:text-slate-400">The daily scrape runs at <strong>{{ scrape_time }} IST</strong>.</p>
 </div>
 
 {% if recent_videos %}
-<div style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.75rem;">Recent videos</h3>
-    <div class="recent-video-list">
+<div class="mt-8">
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Recent videos</h3>
+    <div class="flex flex-col gap-3">
     {% for rv in recent_videos %}
-        <article class="card" style="padding:1rem 1.25rem;">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem;">
-                <a href="/article/{{ rv.id }}" style="font-weight:600;">{{ rv.title }}</a>
-                <a href="{{ rv.url }}" target="_blank" rel="noopener" class="watch-btn" style="flex-shrink:0;">▶ Watch</a>
-            </div>
-            {% if rv.summary_text %}
-            <div style="font-family:var(--font-serif);font-size:0.88rem;color:var(--text-muted);margin-top:0.35rem;line-height:1.5;">
-                {{ rv.summary_text[:400] }}{% if rv.summary_text|length > 400 %}... <a href="/article/{{ rv.id }}">read more</a>{% endif %}
-            </div>
-            {% endif %}
-            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.35rem;">
-                {{ rv.published_at[:10] if rv.published_at else '' }}
-                {% if rv.duration_seconds %}&middot; {{ (rv.duration_seconds // 60) | int }} min{% endif %}
-            </div>
-        </article>
+        {{ video_card(rv) }}
     {% endfor %}
     </div>
 </div>
@@ -132,68 +162,35 @@
 
 {# ── State 2b: Per-channel, videos today ── #}
 {% elif selected_channel and digest_videos %}
-<div style="margin-top:1rem;">
-    <h3 style="margin-bottom:0.75rem;">
+<div class="mt-4">
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
         {% for ch in channels if ch.id == selected_channel %}{{ ch.name }}{% endfor %}
         — {{ digest_videos|length }} video{{ 's' if digest_videos|length != 1 else '' }}
     </h3>
-    <div class="recent-video-list">
+    <div class="flex flex-col gap-3">
     {% for video in digest_videos %}
-        <article class="card" style="padding:1rem 1.25rem;">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem;">
-                <a href="/article/{{ video.id }}" style="font-weight:600;">{{ video.title }}</a>
-                <a href="{{ video.url }}" target="_blank" rel="noopener" class="watch-btn" style="flex-shrink:0;">▶ Watch</a>
-            </div>
-            {% if video.summary_text %}
-            <div style="font-family:var(--font-serif);font-size:0.88rem;color:var(--text-muted);margin-top:0.35rem;line-height:1.5;">
-                {{ video.summary_text | markdown | safe }}
-            </div>
-            {% endif %}
-            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.35rem;">
-                {{ video.published_at[:10] if video.published_at else '' }}
-                {% if video.duration_seconds %}&middot; {{ (video.duration_seconds // 60) | int }} min{% endif %}
-            </div>
-        </article>
+        {{ video_card(video, show_source=False, truncate=False) }}
     {% endfor %}
     </div>
 </div>
 
 {# ── State 3: No digest (all channels) ── #}
 {% elif not digest and not selected_channel %}
-<div class="empty-state">
-    <div class="empty-state-icon">📭</div>
-    <h3>No videos today</h3>
-    <p>The daily scrape runs at <strong>{{ scrape_time }} IST</strong>.</p>
+<div class="flex flex-col items-center justify-center py-12 text-center">
+    <div class="text-5xl mb-3">📭</div>
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">No videos today</h3>
+    <p class="text-sm text-gray-500 dark:text-slate-400">The daily scrape runs at <strong>{{ scrape_time }} IST</strong>.</p>
     {% if channels %}
-    <p style="font-size:0.85rem;color:var(--text-muted);">
-        Following {{ active_channels|length }} channel{{ 's' if active_channels|length != 1 else '' }}.
-    </p>
+    <p class="text-xs text-gray-400 dark:text-slate-500 mt-1">Following {{ active_channels|length }} channel{{ 's' if active_channels|length != 1 else '' }}.</p>
     {% endif %}
 </div>
 
 {% if recent_videos %}
-<div style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.75rem;">Recent videos</h3>
-    <div class="recent-video-list">
+<div class="mt-8">
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Recent videos</h3>
+    <div class="flex flex-col gap-3">
     {% for rv in recent_videos %}
-        <article class="card" style="padding:1rem 1.25rem;">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem;">
-                <div>
-                    <a href="/article/{{ rv.id }}" style="font-weight:600;">{{ rv.title }}</a>
-                    <span style="font-size:0.75rem;color:var(--text-muted);margin-left:0.5rem;">{{ rv.source_name }}</span>
-                </div>
-                <a href="{{ rv.url }}" target="_blank" rel="noopener" class="watch-btn" style="flex-shrink:0;">▶ Watch</a>
-            </div>
-            {% if rv.summary_text %}
-            <div style="font-family:var(--font-serif);font-size:0.88rem;color:var(--text-muted);margin-top:0.35rem;line-height:1.5;">
-                {{ rv.summary_text[:400] }}{% if rv.summary_text|length > 400 %}... <a href="/article/{{ rv.id }}">read more</a>{% endif %}
-            </div>
-            {% endif %}
-            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.35rem;">
-                {{ rv.published_at[:10] if rv.published_at else '' }}
-                {% if rv.duration_seconds %}&middot; {{ (rv.duration_seconds // 60) | int }} min{% endif %}
-            </div>
-        </article>
+        {{ video_card(rv) }}
     {% endfor %}
     </div>
 </div>
@@ -201,41 +198,43 @@
 
 {# ── State 4: Digest exists ── #}
 {% else %}
-
-<article class="card" style="padding:1.75rem;">
-    <div class="digest-body">
+<article class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-8 mb-6">
+    <div class="font-serif text-base leading-relaxed text-gray-800 dark:text-gray-200">
         {{ digest.summary_text | markdown | safe }}
     </div>
-    <footer style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);font-size:0.82rem;color:var(--text-muted);">
+    <footer class="mt-6 pt-4 border-t border-gray-100 dark:border-slate-800 text-sm text-gray-400 dark:text-slate-500">
         {{ digest.video_count }} videos from {{ digest.channel_count }} channel{{ 's' if digest.channel_count != 1 else '' }}
     </footer>
 </article>
 
 {% if digest_videos %}
-<div class="video-footnotes-section">
-    <button class="footnotes-toggle" id="footnotesToggle" aria-expanded="false">
-        <span class="toggle-arrow">▶</span>
+<div class="mb-6">
+    <button id="footnotesToggle" aria-expanded="false"
+            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-300 hover:border-blue-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+        <span id="footnotesArrow" class="text-xs transition-transform">▶</span>
         Videos in this digest ({{ digest_videos|length }})
     </button>
-    <div class="video-footnotes" id="videoFootnotes" style="display:none;">
+    <div id="videoFootnotes" class="hidden mt-3 flex flex-col gap-1.5">
         {% for video in digest_videos %}
-        <div class="video-footnote" id="fn-{{ loop.index }}">
-            <button class="footnote-row" onclick="toggleFootnote('fn-{{ loop.index }}')" aria-expanded="false">
-                <span class="fn-ref">[{{ video.inclusion_order }}]</span>
-                <span class="fn-title">{{ video.title }}</span>
-                <span class="fn-meta">
-                    <span class="fn-channel">{{ video.source_name }}</span>
-                    {% if video.duration_seconds %}
-                    <span class="fn-duration">{{ (video.duration_seconds // 60) | int }} min</span>
-                    {% endif %}
+        <div class="rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden" id="fn-{{ loop.index }}">
+            <button class="flex items-center gap-2.5 w-full px-4 py-3 bg-white dark:bg-slate-900 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors text-left cursor-pointer border-none text-sm"
+                    onclick="toggleFootnote('fn-{{ loop.index }}')" aria-expanded="false">
+                <span class="font-bold text-xs text-blue-600 dark:text-blue-400 flex-shrink-0">[{{ video.inclusion_order }}]</span>
+                <span class="flex-1 font-medium text-gray-900 dark:text-white truncate">{{ video.title }}</span>
+                <span class="text-xs text-gray-400 dark:text-slate-500 flex-shrink-0 hidden sm:flex items-center gap-2">
+                    <span>{{ video.source_name }}</span>
+                    {% if video.duration_seconds %}<span>{{ (video.duration_seconds // 60) | int }} min</span>{% endif %}
                 </span>
-                <span class="fn-expand-icon">▸</span>
+                <span class="footnote-expand-icon text-xs text-gray-400 flex-shrink-0 transition-transform">▸</span>
             </button>
-            <div class="footnote-detail" style="display:none;">
-                <div class="footnote-summary">
+            <div class="hidden px-4 py-4 border-t border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
+                <div class="font-serif text-sm leading-relaxed text-gray-700 dark:text-slate-300 mb-3">
                     {{ video.summary_text | markdown | safe }}
                 </div>
-                <a href="{{ video.url }}" target="_blank" rel="noopener" class="watch-btn">▶ Watch</a>
+                <a href="{{ video.url }}" target="_blank" rel="noopener"
+                   class="inline-flex items-center gap-1 rounded-lg bg-red-600 text-white px-3 py-1 text-xs font-medium hover:bg-red-700 transition-colors">
+                    ▶ Watch
+                </a>
             </div>
         </div>
         {% endfor %}
@@ -245,30 +244,31 @@
 
 {% endif %}
 
-{# ── Footnotes expand/collapse JS ── #}
+{# ── Footnotes JS ── #}
 <script>
 (function() {
     const ftToggle = document.getElementById('footnotesToggle');
     const ftContainer = document.getElementById('videoFootnotes');
+    const ftArrow = document.getElementById('footnotesArrow');
     if (ftToggle && ftContainer) {
         ftToggle.addEventListener('click', () => {
-            const isOpen = ftContainer.style.display !== 'none';
-            ftContainer.style.display = isOpen ? 'none' : '';
-            ftToggle.setAttribute('aria-expanded', !isOpen);
-            ftToggle.querySelector('.toggle-arrow').textContent = isOpen ? '▶' : '▼';
+            const isOpen = !ftContainer.classList.contains('hidden');
+            ftContainer.classList.toggle('hidden', isOpen);
+            ftToggle.setAttribute('aria-expanded', String(!isOpen));
+            ftArrow.textContent = isOpen ? '▶' : '▼';
         });
     }
 
     window.toggleFootnote = function(fnId) {
         const fn = document.getElementById(fnId);
         if (!fn) return;
-        const detail = fn.querySelector('.footnote-detail');
-        const row = fn.querySelector('.footnote-row');
-        const icon = fn.querySelector('.fn-expand-icon');
+        const detail = fn.querySelector(':scope > div:last-child');
+        const row = fn.querySelector('button');
+        const icon = fn.querySelector('.footnote-expand-icon');
         if (!detail || !row) return;
-        const isOpen = detail.style.display !== 'none';
-        detail.style.display = isOpen ? 'none' : '';
-        row.setAttribute('aria-expanded', !isOpen);
+        const isOpen = !detail.classList.contains('hidden');
+        detail.classList.toggle('hidden', isOpen);
+        row.setAttribute('aria-expanded', String(!isOpen));
         if (icon) icon.textContent = isOpen ? '▸' : '▾';
     };
 })();
