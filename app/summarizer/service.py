@@ -111,8 +111,10 @@ def run_summarization(
                     on_progress(f"Summarizing ({idx + 1}/{total_articles}): {short_title}")
 
                 logger.info(f"Summarizing article #{article_id}: {title[:80]}")
-                prompt_name = "youtube_summary" if item_source_type == "youtube" else "single_summary"
-                summary, chunk_count, provider = _summarize_article(raw_text, prompt_name=prompt_name)
+                is_youtube = item_source_type == "youtube"
+                prompt_name = "youtube_summary" if is_youtube else "single_summary"
+                reduce_prompt_name = "youtube_reduce_synthesis" if is_youtube else "reduce_synthesis"
+                summary, chunk_count, provider = _summarize_article(raw_text, prompt_name=prompt_name, reduce_prompt_name=reduce_prompt_name)
 
                 update_article_summary(conn, article_id, summary, chunk_count, provider)
                 if published_date:
@@ -199,7 +201,7 @@ def run_summarization(
 # ---------------------------------------------------------------------------
 
 
-def _summarize_article(raw_text: str, prompt_name: str = "single_summary") -> tuple[str, int, str]:
+def _summarize_article(raw_text: str, prompt_name: str = "single_summary", reduce_prompt_name: str = "reduce_synthesis") -> tuple[str, int, str]:
     """Summarize a single article using map-reduce if it's long.
 
     Returns (summary_text, chunk_count, provider_used).
@@ -242,7 +244,7 @@ def _summarize_article(raw_text: str, prompt_name: str = "single_summary") -> tu
 
     # REDUCE phase: synthesize sub-summaries into one cohesive summary
     combined = "\n\n---\n\n".join(sub_summaries)
-    final_summary = call_llm(prompt_manager.get_prompt("reduce_synthesis").format(sub_summaries=combined))
+    final_summary = call_llm(prompt_manager.get_prompt(reduce_prompt_name).format(sub_summaries=combined))
 
     return final_summary, len(chunks), get_last_provider()
 

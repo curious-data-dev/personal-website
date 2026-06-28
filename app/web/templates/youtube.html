@@ -13,7 +13,7 @@
         <span class="sublink-label">All Channels</span>
     </a>
     {% for ch in active_channels %}
-    <a href="/youtube?channel={{ ch.id }}"
+    <a href="/youtube?channel={{ ch.id }}&date={{ display_date }}"
        class="sidebar-sublink {% if selected_channel == ch.id %}active{% endif %}"
        title="{{ ch.name }}">
         <span class="sublink-label">{{ ch.name }}</span>
@@ -24,7 +24,7 @@
     {% if paused_channels %}
     <div class="sublink-divider">Paused</div>
     {% for ch in paused_channels %}
-    <a href="/youtube?channel={{ ch.id }}"
+    <a href="/youtube?channel={{ ch.id }}&date={{ display_date }}"
        class="sidebar-sublink paused {% if selected_channel == ch.id %}active{% endif %}"
        title="{{ ch.name }}">
         <span class="sublink-label">{{ ch.name }}</span>
@@ -94,7 +94,7 @@
     <p><a href="/settings">Add your first channel →</a></p>
 </div>
 
-{# ── State 2: Per-channel, no videos ── #}
+{# ── State 2: Per-channel, no videos today ── #}
 {% elif selected_channel and not digest_videos %}
 <div class="empty-state">
     <div class="empty-state-icon">📭</div>
@@ -129,6 +129,34 @@
     </div>
 </div>
 {% endif %}
+
+{# ── State 2b: Per-channel, videos today ── #}
+{% elif selected_channel and digest_videos %}
+<div style="margin-top:1rem;">
+    <h3 style="margin-bottom:0.75rem;">
+        {% for ch in channels if ch.id == selected_channel %}{{ ch.name }}{% endfor %}
+        — {{ digest_videos|length }} video{{ 's' if digest_videos|length != 1 else '' }}
+    </h3>
+    <div class="recent-video-list">
+    {% for video in digest_videos %}
+        <article class="card" style="padding:1rem 1.25rem;">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem;">
+                <a href="/article/{{ video.id }}" style="font-weight:600;">{{ video.title }}</a>
+                <a href="{{ video.url }}" target="_blank" rel="noopener" class="watch-btn" style="flex-shrink:0;">▶ Watch</a>
+            </div>
+            {% if video.summary_text %}
+            <div style="font-family:var(--font-serif);font-size:0.88rem;color:var(--text-muted);margin-top:0.35rem;line-height:1.5;">
+                {{ video.summary_text | markdown | safe }}
+            </div>
+            {% endif %}
+            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.35rem;">
+                {{ video.published_at[:10] if video.published_at else '' }}
+                {% if video.duration_seconds %}&middot; {{ (video.duration_seconds // 60) | int }} min{% endif %}
+            </div>
+        </article>
+    {% endfor %}
+    </div>
+</div>
 
 {# ── State 3: No digest (all channels) ── #}
 {% elif not digest and not selected_channel %}
