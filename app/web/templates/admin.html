@@ -172,22 +172,22 @@ async function loadStatus() {
         if (dates.length === 0) {
             html += '<p style="color:var(--text-muted);">No articles scraped yet.</p>';
         } else {
-            html += '<table class="sources-table"><thead><tr>';
-            html += '<th>Date</th><th>Total</th><th>Raw</th><th>Summarized</th><th>Failed</th><th>Digest</th><th></th>';
+            html += '<table class="w-full border-collapse text-[0.9rem]"><thead><tr class="text-left text-xs uppercase tracking-wider text-gray-500 dark:text-slate-400 font-semibold">';
+            html += '<th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Date</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Total</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Raw</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Summarized</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Failed</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Digest</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700"></th>';
             html += '</tr></thead><tbody>';
 
             for (const d of dates) {
                 const digestIcon = d.has_digest ? '✅' : '—';
                 const canRegen = d.summarized > 0;
                 const jobMsg = jobs[d.date];
-                html += '<tr>';
-                html += '<td><a href="/digest/' + d.date + '">' + d.date + '</a></td>';
-                html += '<td>' + d.total + '</td>';
-                html += '<td>' + d.raw + '</td>';
-                html += '<td>' + d.summarized + '</td>';
-                html += '<td>' + d.failed + '</td>';
-                html += '<td>' + digestIcon + '</td>';
-                html += '<td>';
+                html += '<tr class="hover:bg-gray-50 dark:hover:bg-slate-800/50">';
+                html += '<td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle"><a href="/digest/' + d.date + '">' + d.date + '</a></td>';
+                html += '<td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">' + d.total + '</td>';
+                html += '<td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">' + d.raw + '</td>';
+                html += '<td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">' + d.summarized + '</td>';
+                html += '<td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">' + d.failed + '</td>';
+                html += '<td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">' + digestIcon + '</td>';
+                html += '<td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">';
                 if (canRegen) {
                     if (jobMsg && !jobMsg.startsWith('✅') && !jobMsg.startsWith('❌')) {
                         html += '<span style="font-size:0.72rem;color:var(--ink);">' + jobMsg + '</span>';
@@ -204,7 +204,7 @@ async function loadStatus() {
 
         el.innerHTML = html;
     } catch (e) {
-        el.innerHTML = '<p class="error-box">Failed to load status: ' + e.message + '</p>';
+        el.innerHTML = '<p class="border-l-4 border-red-600 dark:border-red-500 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-r-md my-4 text-sm">Failed to load status: ' + e.message + '</p>';
     }
 }
 

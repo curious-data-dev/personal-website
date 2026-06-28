@@ -201,8 +201,8 @@ async function startUnifiedRun() {
             if (['completed','partial','failed','no_new_content'].includes(run.status)) {
                 clearInterval(timer); btn.disabled = false;
                 if (run.affected_dates?.length) result.innerHTML += '<br>' + run.affected_dates.map(d => '<a href="' + d.url + '">' + d.source_type.toUpperCase() + ' ' + d.digest_date + '</a>').join(' · ');
-                if (run.errors?.length) result.innerHTML += '<div class="error-box" style="margin-top:0.75rem;">' + run.errors.map(e => escHtml((e.branch ? e.branch + ': ' : '') + (e.error || JSON.stringify(e)))).join('<br>') + '</div>';
-                if (['partial','failed'].includes(run.status)) result.innerHTML += '<button class="btn btn-sm" style="margin-top:0.5rem;" onclick="retryUnifiedRun(' + run.id + ')">Retry failed work</button>';
+                if (run.errors?.length) result.innerHTML += '<div class="border-l-4 border-red-600 dark:border-red-500 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-r-md my-4 text-sm" style="margin-top:0.75rem;">' + run.errors.map(e => escHtml((e.branch ? e.branch + ': ' : '') + (e.error || JSON.stringify(e)))).join('<br>') + '</div>';
+                if (['partial','failed'].includes(run.status)) result.innerHTML += '<button class="rounded-md bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-3 py-1 text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 cursor-pointer" style="margin-top:0.5rem;" onclick="retryUnifiedRun(' + run.id + ')">Retry failed work</button>';
             }
         }, 1500);
     } catch (error) { result.textContent = error.message; btn.disabled = false; }
@@ -366,12 +366,12 @@ async function loadStatus() {
         if (dates.length === 0) {
             html += '<p style="color:var(--text-muted);">No articles scraped yet.</p>';
         } else {
-            html += '<table class="source-table"><thead><tr><th>Date</th><th>Total</th><th>Raw</th><th>Summarized</th><th>Failed</th><th>Digest</th><th></th></tr></thead><tbody>';
+            html += '<table class="w-full border-collapse text-[0.9rem]"><thead><tr class="text-left text-xs uppercase tracking-wider text-gray-500 dark:text-slate-400 font-semibold"><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Date</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Total</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Raw</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Summarized</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Failed</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700">Digest</th><th class="px-3 py-2.5 border-b-2 border-gray-200 dark:border-slate-700"></th></tr></thead><tbody>';
             for (const d of dates) {
                 const digestIcon = d.has_digest ? '✅' : '—';
                 const canRegen = d.summarized > 0;
                 const jobMsg = (data.jobs || {})[d.date];
-                html += `<tr><td><a href="/digest/${d.date}">${d.date}</a></td><td>${d.total}</td><td>${d.raw}</td><td>${d.summarized}</td><td>${d.failed}</td><td>${digestIcon}</td><td>`;
+                html += `<tr class="hover:bg-gray-50 dark:hover:bg-slate-800/50"><td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle"><a href="/digest/${d.date}">${d.date}</a></td><td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">${d.total}</td><td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">${d.raw}</td><td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">${d.summarized}</td><td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">${d.failed}</td><td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">${digestIcon}</td><td class="px-3 py-2.5 border-b border-gray-200 dark:border-slate-700 align-middle">`;
                 if (canRegen) {
                     if (jobMsg && !jobMsg.startsWith('✅') && !jobMsg.startsWith('❌')) {
                         html += `<span style="font-size:0.72rem;color:var(--ink);">${jobMsg}</span>`;
