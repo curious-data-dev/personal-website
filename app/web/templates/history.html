@@ -3,18 +3,22 @@
 
 {% block content %}
 
-<h1 style="color:var(--ink);margin-bottom:0.25rem;">📚 Digest History</h1>
-<p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1.25rem;">Browse past daily digests</p>
+<h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-1">📚 Digest History</h1>
+<p class="text-sm text-gray-500 dark:text-slate-400 mb-6">Browse past daily digests</p>
 
 {% if years %}
-<div class="year-tabs">
+<div class="flex flex-wrap gap-1.5 mb-4">
     {% for y in years %}
-    <a href="/history?year={{ y }}" class="year-tab {% if y == selected_year %}active{% endif %}">{{ y }}</a>
+    <a href="/history?year={{ y }}" class="inline-flex rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors
+        {% if y == selected_year %}bg-blue-600 text-white{% else %}text-gray-500 hover:text-blue-600 border border-gray-200 dark:border-slate-700 dark:text-slate-400 dark:hover:text-blue-400{% endif %}">
+        {{ y }}
+    </a>
     {% endfor %}
 </div>
 
-<div class="month-selector">
-    <select onchange="const val=this.value;location.href=val?'/history?year={{ selected_year }}&month='+val:'/history?year={{ selected_year }}'">
+<div class="mb-6">
+    <select onchange="const val=this.value;location.href=val?'/history?year={{ selected_year }}&month='+val:'/history?year={{ selected_year }}'"
+            class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
         <option value="">All months</option>
         {% for m in range(1, 13) %}
         <option value="{{ m }}" {% if selected_month == m %}selected{% endif %}>
@@ -26,31 +30,31 @@
 {% endif %}
 
 {% if digests %}
-<div class="history-grid">
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
     {% for d in digests %}
-    <a href="/digest/{{ d.date }}" class="history-card">
-        <div class="history-card-date">{{ d.date }}</div>
-        <div class="history-card-title">{{ d.title or d.date }}</div>
-        <div class="history-card-stats">{{ d.article_count }} articles · {{ d.source_count }} sources</div>
+    <a href="/digest/{{ d.date }}" class="block rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 hover:shadow-md hover:-translate-y-0.5 transition-all no-underline text-gray-900 dark:text-white">
+        <div class="text-xs text-gray-400 dark:text-slate-500 mb-1">{{ d.date }}</div>
+        <div class="font-semibold text-gray-900 dark:text-white mb-1.5">{{ d.title or d.date }}</div>
+        <div class="text-xs text-gray-500 dark:text-slate-400 mb-2">{{ d.article_count }} articles · {{ d.source_count }} sources</div>
         {% if d.summary_text %}
-        <div class="history-card-excerpt">{{ d.summary_text[:200] }}…</div>
+        <div class="text-sm text-gray-500 dark:text-slate-400 line-clamp-3 leading-relaxed">{{ d.summary_text[:200] }}…</div>
         {% endif %}
     </a>
     {% endfor %}
 </div>
 
 {% elif years %}
-<div class="empty-state" style="margin-top:1rem;padding:2rem;">
-    <div class="empty-state-icon">📭</div>
-    <h3>No digests found for {{ selected_year }}{% if selected_month %} — {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][selected_month-1] }}{% endif %}</h3>
-    <p>Try a different year or month.</p>
+<div class="flex flex-col items-center justify-center py-12 text-center">
+    <div class="text-5xl mb-3">📭</div>
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">No digests found for {{ selected_year }}{% if selected_month %} — {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][selected_month-1] }}{% endif %}</h3>
+    <p class="text-sm text-gray-500 dark:text-slate-400">Try a different year or month.</p>
 </div>
 
 {% else %}
-<div class="empty-state">
-    <div class="empty-state-icon">📚</div>
-    <h3>No digests yet</h3>
-    <p>Once the scraper runs and summaries are generated, your digest history will appear here.</p>
+<div class="flex flex-col items-center justify-center py-16 text-center">
+    <div class="text-6xl mb-4">📚</div>
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">No digests yet</h3>
+    <p class="text-gray-500 dark:text-slate-400">Once the scraper runs and summaries are generated, your digest history will appear here.</p>
 </div>
 {% endif %}
 
