@@ -211,17 +211,63 @@
         // ── Mobile drawer ──
         const drawer = document.getElementById('mobileDrawer');
         const overlay = document.getElementById('mobileDrawerOverlay');
+        const menuBtn = document.getElementById('mobileMenuBtn');
+        let drawerOpen = false;
+        let previousFocusedEl = null;
+
+        function getDrawerFocusable() {
+            return Array.from(drawer.querySelectorAll(
+                'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            )).filter(function(el) { return el.offsetParent !== null; });
+        }
+
         function openDrawer() {
             drawer.classList.remove('-translate-x-full');
             overlay.classList.remove('opacity-0', 'pointer-events-none');
+            drawerOpen = true;
+            previousFocusedEl = document.activeElement;
+            var focusable = getDrawerFocusable();
+            if (focusable.length) { focusable[0].focus(); }
         }
+
         function closeDrawer() {
             drawer.classList.add('-translate-x-full');
             overlay.classList.add('opacity-0', 'pointer-events-none');
+            drawerOpen = false;
+            if (previousFocusedEl) {
+                previousFocusedEl.focus();
+                previousFocusedEl = null;
+            }
         }
-        document.getElementById('mobileMenuBtn').addEventListener('click', openDrawer);
+
+        menuBtn.addEventListener('click', openDrawer);
         document.getElementById('mobileDrawerClose').addEventListener('click', closeDrawer);
         overlay.addEventListener('click', closeDrawer);
+
+        document.addEventListener('keydown', function(e) {
+            if (!drawerOpen) return;
+            if (e.key === 'Escape') {
+                closeDrawer();
+                return;
+            }
+            if (e.key === 'Tab') {
+                var focusable = getDrawerFocusable();
+                if (!focusable.length) return;
+                var first = focusable[0];
+                var last = focusable[focusable.length - 1];
+                if (e.shiftKey) {
+                    if (document.activeElement === first) {
+                        e.preventDefault();
+                        last.focus();
+                    }
+                } else {
+                    if (document.activeElement === last) {
+                        e.preventDefault();
+                        first.focus();
+                    }
+                }
+            }
+        });
 
         // ── YouTube subnav ──
         const ytNav = document.getElementById('youtubeNav');
