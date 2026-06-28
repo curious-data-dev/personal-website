@@ -23,140 +23,214 @@
     <link rel="stylesheet" href="/static/style.css">
     {% block head_extra %}{% endblock %}
 </head>
-<body class="app-layout">
-    {# ── Left Sidebar ── #}
-    <aside class="app-sidebar" id="appSidebar">
-        <div class="sidebar-brand-row">
-            <a href="/" class="sidebar-brand">📰 Media Hub</a>
-            <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar">☰</button>
+<body class="font-sans antialiased bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-white transition-colors">
+
+    {# ── Desktop Sidebar ── #}
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-60 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 flex flex-col transition-all duration-200 overflow-y-auto overflow-x-hidden max-md:hidden">
+        {# Brand row #}
+        <div class="flex items-center gap-2 px-4 py-4">
+            <a href="/" class="font-bold text-base text-gray-900 dark:text-white whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0">📰 Media Hub</a>
+            <button id="sidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar"
+                    class="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-400 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
         </div>
 
-        <nav class="sidebar-nav">
-            <a href="/" class="sidebar-link {% if request.url.path == '/' %}active{% endif %}" title="Daily Digest">
-                <span class="sidebar-icon">📅</span>
-                <span class="sidebar-label">Daily Digest</span>
+        {# Nav links #}
+        <nav class="flex flex-col gap-0.5 px-3 flex-1">
+            <a href="/" class="sidebar-link {% if request.url.path == '/' %}sidebar-link-active{% endif %}">
+                <span>📅</span><span class="sidebar-label">Daily Digest</span>
             </a>
+
             {% if request.url.path.startswith('/youtube') %}
-            {# YouTube page: collapsible toggle + channel subnav #}
-            <div class="sidebar-link youtube-parent active" id="youtubeNav" title="YouTube">
-                <span class="sidebar-icon">🎬</span>
-                <span class="sidebar-label">YouTube</span>
-                <span class="youtube-chevron" id="youtubeChevron">▸</span>
+            <div id="youtubeNav" class="sidebar-link sidebar-link-active youtube-parent cursor-pointer">
+                <span>🎬</span><span class="sidebar-label">YouTube</span>
+                <span id="youtubeChevron" class="text-xs text-gray-400 ml-auto flex-shrink-0">▸</span>
             </div>
-            <div class="sidebar-subnav" id="youtubeSubnav">
+            <div id="youtubeSubnav" class="hidden flex-col ml-4 border-l-2 border-gray-200 dark:border-slate-700 py-0.5">
                 {% block sidebar_subnav %}{% endblock %}
             </div>
             {% else %}
-            {# Other pages: plain link #}
-            <a href="/youtube" class="sidebar-link" title="YouTube">
-                <span class="sidebar-icon">🎬</span>
-                <span class="sidebar-label">YouTube</span>
+            <a href="/youtube" class="sidebar-link">
+                <span>🎬</span><span class="sidebar-label">YouTube</span>
             </a>
             {% endif %}
-            <a href="/history" class="sidebar-link {% if request.url.path.startswith('/history') %}active{% endif %}" title="History">
-                <span class="sidebar-icon">📚</span>
-                <span class="sidebar-label">History</span>
+
+            <a href="/history" class="sidebar-link {% if request.url.path.startswith('/history') %}sidebar-link-active{% endif %}">
+                <span>📚</span><span class="sidebar-label">History</span>
             </a>
-            <a href="/sources" class="sidebar-link {% if request.url.path.startswith('/sources') %}active{% endif %}" title="Sources">
-                <span class="sidebar-icon">📡</span>
-                <span class="sidebar-label">Sources</span>
+            <a href="/sources" class="sidebar-link {% if request.url.path.startswith('/sources') %}sidebar-link-active{% endif %}">
+                <span>📡</span><span class="sidebar-label">Sources</span>
             </a>
         </nav>
 
-        <div class="sidebar-footer">
-            <a href="/settings" class="sidebar-link {% if request.url.path.startswith('/settings') %}active{% endif %}" title="Settings">
-                <span class="sidebar-icon">⚙️</span>
-                <span class="sidebar-label">Settings</span>
+        {# Footer group #}
+        <div class="border-t border-gray-100 dark:border-slate-800 px-3 py-2 flex flex-col gap-0.5">
+            <a href="/settings" class="sidebar-link {% if request.url.path.startswith('/settings') %}sidebar-link-active{% endif %}">
+                <span>⚙️</span><span class="sidebar-label">Settings</span>
             </a>
-            <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">☀️</button>
+            <button id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode"
+                    class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-50 dark:hover:text-white dark:hover:bg-slate-800 transition-colors text-sm font-medium">
+                <span class="w-5 text-center flex-shrink-0" id="themeIcon">☀️</span>
+                <span class="sidebar-label" id="themeLabel">Light</span>
+            </button>
         </div>
     </aside>
 
+    {# ── Collapsed sidebar override styles ── #}
+    <style>
+        .sidebar-collapsed #sidebar { width: 64px; }
+        .sidebar-collapsed #sidebar .sidebar-label { display: none; }
+        .sidebar-collapsed #sidebar nav .sidebar-link { justify-content: center; padding-left: 0.25rem; padding-right: 0.25rem; }
+        .sidebar-collapsed #sidebar .sidebar-brand-row .font-bold { display: none; }
+        .sidebar-collapsed #sidebar #youtubeSubnav { display: none !important; }
+        .sidebar-collapsed #themeToggle { justify-content: center; }
+    </style>
+
+    {# ── Mobile Top Bar ── #}
+    <header class="sticky top-0 z-30 flex items-center h-14 px-4 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 md:hidden">
+        <button id="mobileMenuBtn" title="Open menu" aria-label="Open menu"
+                class="flex items-center justify-center w-9 h-9 rounded-lg text-gray-500 hover:text-blue-600 hover:bg-gray-50 dark:hover:text-blue-400 dark:hover:bg-slate-800 transition-colors mr-3">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <a href="/" class="font-bold text-base text-gray-900 dark:text-white">📰 Media Hub</a>
+        <button id="mobileThemeToggle" title="Toggle dark mode" aria-label="Toggle dark mode"
+                class="ml-auto flex items-center justify-center w-9 h-9 rounded-lg text-gray-500 hover:text-blue-600 hover:bg-gray-50 dark:hover:text-blue-400 dark:hover:bg-slate-800 transition-colors">
+            <span id="mobileThemeIcon">☀️</span>
+        </button>
+    </header>
+
+    {# ── Mobile Slide-over Drawer ── #}
+    <div id="mobileDrawerOverlay" class="fixed inset-0 z-40 bg-black/50 opacity-0 pointer-events-none transition-opacity duration-200 md:hidden"></div>
+    <aside id="mobileDrawer" class="fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 flex flex-col transform -translate-x-full transition-transform duration-200 md:hidden">
+        <div class="flex items-center justify-between px-4 py-4 border-b border-gray-100 dark:border-slate-800">
+            <span class="font-bold text-base text-gray-900 dark:text-white">📰 Media Hub</span>
+            <button id="mobileDrawerClose" title="Close menu" aria-label="Close menu"
+                    class="flex items-center justify-center w-8 h-8 rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-50 dark:hover:text-white dark:hover:bg-slate-800 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <nav class="flex flex-col gap-0.5 px-3 py-3 flex-1">
+            <a href="/" class="sidebar-link {% if request.url.path == '/' %}sidebar-link-active{% endif %}">
+                <span>📅</span><span>Daily Digest</span>
+            </a>
+            <a href="/youtube" class="sidebar-link {% if request.url.path.startswith('/youtube') %}sidebar-link-active{% endif %}">
+                <span>🎬</span><span>YouTube</span>
+            </a>
+            <a href="/history" class="sidebar-link {% if request.url.path.startswith('/history') %}sidebar-link-active{% endif %}">
+                <span>📚</span><span>History</span>
+            </a>
+            <a href="/sources" class="sidebar-link {% if request.url.path.startswith('/sources') %}sidebar-link-active{% endif %}">
+                <span>📡</span><span>Sources</span>
+            </a>
+            <a href="/settings" class="sidebar-link {% if request.url.path.startswith('/settings') %}sidebar-link-active{% endif %}">
+                <span>⚙️</span><span>Settings</span>
+            </a>
+        </nav>
+    </aside>
+
     {# ── Main Content ── #}
-    <main class="app-main">
-        <div class="container">
+    <main class="md:ml-60 transition-[margin] duration-200" id="mainContent">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-16">
             {% block content %}{% endblock %}
         </div>
-        <footer class="app-footer">
+        <footer class="text-center py-8 text-sm text-gray-400 dark:text-slate-500">
             Personal Media Intelligence Hub
         </footer>
     </main>
 
-    <script>
-    // ── Sidebar toggle ──
-    (function() {
-        const sidebar = document.getElementById('appSidebar');
-        const toggle = document.getElementById('sidebarToggle');
-        const layout = document.querySelector('.app-layout');
+    {# ── Sidebar link styles (scoped to sidebar/drawer) ── #}
+    <style>
+        .sidebar-link {
+            display: flex; align-items: center; gap: 0.625rem;
+            padding: 0.625rem 0.75rem; border-radius: 0.5rem;
+            font-size: 0.875rem; font-weight: 500; color: #737373;
+            transition: all 0.15s; text-decoration: none; white-space: nowrap; overflow: hidden;
+        }
+        .sidebar-link:hover { color: #171717; background: #f9fafb; }
+        .dark .sidebar-link:hover { color: #e2e8f0; background: rgba(30,41,59,0.8); }
+        .sidebar-link-active { color: #2563eb; background: #eff6ff; }
+        .dark .sidebar-link-active { color: #60a5fa; background: rgba(37,99,235,0.1); }
+    </style>
 
-        // Restore saved state
-        const saved = localStorage.getItem('sidebar-collapsed');
-        if (saved === 'true') {
-            layout.classList.add('sidebar-collapsed');
+    {# ── JavaScript: Sidebar toggle, theme, mobile drawer, YouTube subnav ── #}
+    <script>
+    (function() {
+        // ── Theme ──
+        const html = document.documentElement;
+        function updateThemeUI() {
+            const isDark = html.getAttribute('data-theme') === 'dark';
+            const desktopIcon = document.getElementById('themeIcon');
+            const desktopLabel = document.getElementById('themeLabel');
+            const mobileIcon = document.getElementById('mobileThemeIcon');
+            if (desktopIcon) desktopIcon.textContent = isDark ? '🌙' : '☀️';
+            if (desktopLabel) desktopLabel.textContent = isDark ? 'Dark' : 'Light';
+            if (mobileIcon) mobileIcon.textContent = isDark ? '🌙' : '☀️';
+        }
+        updateThemeUI();
+
+        function toggleTheme() {
+            const isDark = html.getAttribute('data-theme') === 'dark';
+            if (isDark) { html.removeAttribute('data-theme'); localStorage.setItem('theme', 'light'); }
+            else { html.setAttribute('data-theme', 'dark'); localStorage.setItem('theme', 'dark'); }
+            updateThemeUI();
         }
 
-        toggle.addEventListener('click', () => {
-            layout.classList.toggle('sidebar-collapsed');
-            const isCollapsed = layout.classList.contains('sidebar-collapsed');
-            localStorage.setItem('sidebar-collapsed', isCollapsed);
+        document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+        document.getElementById('mobileThemeToggle').addEventListener('click', toggleTheme);
+
+        // ── Desktop sidebar collapse ──
+        const mainContent = document.getElementById('mainContent');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const savedCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+        if (savedCollapsed) { mainContent.classList.add('sidebar-collapsed'); }
+
+        sidebarToggle.addEventListener('click', () => {
+            mainContent.classList.toggle('sidebar-collapsed');
+            localStorage.setItem('sidebar-collapsed', mainContent.classList.contains('sidebar-collapsed'));
         });
-    })();
 
-    // ── Dark mode toggle ──
-    (function() {
-        const toggle = document.getElementById('themeToggle');
-        const html = document.documentElement;
+        // Also adjust main margin when collapsed
+        const styleSheet = document.createElement('style');
+        styleSheet.textContent = '.sidebar-collapsed #mainContent { margin-left: 64px; }';
+        document.head.appendChild(styleSheet);
 
-        const isDark = html.getAttribute('data-theme') === 'dark';
-        toggle.textContent = isDark ? '🌙' : '☀️';
+        // ── Mobile drawer ──
+        const drawer = document.getElementById('mobileDrawer');
+        const overlay = document.getElementById('mobileDrawerOverlay');
+        function openDrawer() {
+            drawer.classList.remove('-translate-x-full');
+            overlay.classList.remove('opacity-0', 'pointer-events-none');
+        }
+        function closeDrawer() {
+            drawer.classList.add('-translate-x-full');
+            overlay.classList.add('opacity-0', 'pointer-events-none');
+        }
+        document.getElementById('mobileMenuBtn').addEventListener('click', openDrawer);
+        document.getElementById('mobileDrawerClose').addEventListener('click', closeDrawer);
+        overlay.addEventListener('click', closeDrawer);
 
-        toggle.addEventListener('click', () => {
-            const isDark = html.getAttribute('data-theme') === 'dark';
-            if (isDark) {
-                html.removeAttribute('data-theme');
-                toggle.textContent = '☀️';
-                localStorage.setItem('theme', 'light');
-            } else {
-                html.setAttribute('data-theme', 'dark');
-                toggle.textContent = '🌙';
-                localStorage.setItem('theme', 'dark');
-            }
-        });
-    })();
-
-    // ── YouTube subnav collapse/expand ──
-    (function() {
+        // ── YouTube subnav ──
         const ytNav = document.getElementById('youtubeNav');
         const ytSubnav = document.getElementById('youtubeSubnav');
         const ytChevron = document.getElementById('youtubeChevron');
-        if (!ytNav || !ytSubnav || !ytChevron) return;
-
-        const STORAGE_KEY = 'youtube-subnav-expanded';
-
-        function expand() {
-            ytSubnav.classList.add('expanded');
-            ytChevron.textContent = '▾';
-        }
-        function collapse() {
-            ytSubnav.classList.remove('expanded');
-            ytChevron.textContent = '▸';
-        }
-
-        // Default expanded on first visit, then respect saved preference
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved !== 'false') {
-            expand();
-        }
-
-        ytNav.addEventListener('click', () => {
-            if (ytSubnav.classList.contains('expanded')) {
-                collapse();
-                localStorage.setItem(STORAGE_KEY, 'false');
-            } else {
-                expand();
-                localStorage.setItem(STORAGE_KEY, 'true');
+        if (ytNav && ytSubnav && ytChevron) {
+            const STORAGE_KEY = 'youtube-subnav-expanded';
+            function expand() {
+                ytSubnav.classList.remove('hidden');
+                ytChevron.textContent = '▾';
             }
-        });
+            function collapse() {
+                ytSubnav.classList.add('hidden');
+                ytChevron.textContent = '▸';
+            }
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved !== 'false') expand();
+            ytNav.addEventListener('click', () => {
+                if (ytSubnav.classList.contains('hidden')) { expand(); localStorage.setItem(STORAGE_KEY, 'true'); }
+                else { collapse(); localStorage.setItem(STORAGE_KEY, 'false'); }
+            });
+        }
     })();
     </script>
 </body>
