@@ -4,72 +4,76 @@
 {% block content %}
 
 {# ── Breadcrumb ── #}
-<div class="breadcrumb">
-    <a href="/">Today's Digest</a> › <span>Article</span>
-</div>
+<nav class="mb-4 text-sm text-gray-400 dark:text-slate-500">
+    <a href="/" class="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Today's Digest</a>
+    <span class="mx-1.5 text-gray-300 dark:text-slate-600">›</span>
+    <span class="text-gray-500 dark:text-slate-400">Article</span>
+</nav>
 
 {# ── Header ── #}
-<div class="article-header">
-    <h1>{{ article.title }}</h1>
-    <div class="article-meta">
+<header class="mb-6">
+    <h1 class="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white leading-tight">{{ article.title }}</h1>
+    <div class="flex flex-wrap items-center gap-2 mt-3 text-sm text-gray-500 dark:text-slate-400">
         {% if article.author %}<span>✍️ {{ article.author }}</span>{% endif %}
         {% if article.published_at %}
-        <span class="sep">·</span>
+        <span class="text-gray-300 dark:text-slate-600">·</span>
         <span>📅 {{ article.published_at[:10] }}</span>
         {% endif %}
         {% if article.fetched_at %}
-        <span class="sep">·</span>
+        <span class="text-gray-300 dark:text-slate-600">·</span>
         <span>Fetched {{ article.fetched_at[:10] }}</span>
         {% endif %}
         {% if article.chunk_count > 1 %}
-        <span class="sep">·</span>
-        <span class="reading-time">{{ article.chunk_count }} chunks</span>
+        <span class="text-gray-300 dark:text-slate-600">·</span>
+        <span class="italic">{{ article.chunk_count }} chunks</span>
         {% endif %}
     </div>
-</div>
+</header>
 
 {# ── Summary ── #}
 {% if article.summary_text %}
-<div class="summary-card">
-    <h3>📝 Summary</h3>
-    <div class="digest-body">
+<div class="rounded-r-xl border-l-4 border-blue-500 bg-blue-50/50 dark:bg-blue-950/20 p-5 sm:p-6 mb-6">
+    <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-3">📝 Summary</h3>
+    <div class="font-serif text-base leading-relaxed text-gray-800 dark:text-gray-200">
         {{ article.summary_text | markdown | safe }}
     </div>
 </div>
 {% elif article.status == 'summarizing' %}
-<div class="card" style="text-align:center;padding:2rem;">
-    <p style="color:var(--text-muted);">⏳ Summarization in progress...</p>
+<div class="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center mb-6">
+    <p class="text-gray-500 dark:text-slate-400">⏳ Summarization in progress...</p>
 </div>
 {% elif article.status == 'failed' %}
-<div class="error-box">
-    <p><strong>❌ Summarization failed</strong></p>
-    {% if article.error_message %}<p style="font-size:0.85rem;">{{ article.error_message }}</p>{% endif %}
+<div class="rounded-r-xl border-l-4 border-red-500 bg-red-50 dark:bg-red-950/20 p-4 mb-6 text-red-700 dark:text-red-300">
+    <p class="font-semibold">❌ Summarization failed</p>
+    {% if article.error_message %}<p class="text-sm mt-1 opacity-80">{{ article.error_message }}</p>{% endif %}
 </div>
 {% else %}
-<div class="card" style="text-align:center;padding:2rem;">
-    <p style="color:var(--text-muted);">⏳ Awaiting summarization...</p>
+<div class="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center mb-6">
+    <p class="text-gray-500 dark:text-slate-400">⏳ Awaiting summarization...</p>
 </div>
 {% endif %}
 
 {# ── Original Text ── #}
 {% if article.raw_text %}
-<details>
-    <summary>📄 View original text ({{ article.raw_text.split()|length }} words)</summary>
-    <div class="raw-text">
+<details class="mb-6">
+    <summary class="cursor-pointer text-sm font-medium text-gray-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition-colors py-1">
+        📄 View original text ({{ article.raw_text.split()|length }} words)
+    </summary>
+    <div class="mt-3 max-h-96 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-4 text-sm font-serif leading-relaxed text-gray-700 dark:text-slate-300">
         {% for paragraph in article.raw_text.split('\n\n') %}
-            <p>{{ paragraph }}</p>
+            <p class="mb-3 last:mb-0">{{ paragraph }}</p>
         {% endfor %}
     </div>
 </details>
 {% endif %}
 
 {# ── Footer Links ── #}
-<div class="article-footer-links">
-    <a href="{{ article.url }}" target="_blank" rel="noopener" class="external-link">
+<div class="flex flex-wrap gap-3 mt-8">
+    <a href="{{ article.url }}" target="_blank" rel="noopener" class="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition-colors active:scale-95">
         🔗 Read original article
     </a>
     {% if article.fetched_at %}
-    <a href="/digest/{{ article.fetched_at[:10] }}" class="external-link" style="border-color:var(--border);color:var(--text-muted);">
+    <a href="/digest/{{ article.fetched_at[:10] }}" class="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-400 px-4 py-2 text-sm font-medium hover:border-blue-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
         📅 View digest for {{ article.fetched_at[:10] }}
     </a>
     {% endif %}
