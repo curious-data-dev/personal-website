@@ -34,7 +34,7 @@
 {% if article.summary_text %}
 <div class="rounded-r-xl border-l-4 border-blue-500 bg-blue-50/50 dark:bg-blue-950/20 p-5 sm:p-6 mb-6">
     <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-3">📝 Summary</h3>
-    <div class="font-serif text-base leading-relaxed text-gray-800 dark:text-gray-200">
+    <div class="font-serif text-base leading-relaxed text-gray-800 dark:text-gray-200 digest-body">
         {{ article.summary_text | markdown | safe }}
     </div>
 </div>

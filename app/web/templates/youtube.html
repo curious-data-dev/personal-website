@@ -115,7 +115,7 @@
         </a>
     </div>
     {% if video.summary_text %}
-    <div class="mt-2 text-sm font-serif leading-relaxed text-gray-600 dark:text-slate-400">
+    <div class="mt-2 text-sm font-serif leading-relaxed text-gray-600 dark:text-slate-400 digest-body">
         {% if truncate %}
         {{ video.summary_text[:400] }}{% if video.summary_text|length > 400 %}... <a href="/article/{{ video.id }}" class="text-blue-600 dark:text-blue-400 hover:underline">read more</a>{% endif %}
         {% else %}
@@ -199,7 +199,7 @@
 {# ── State 4: Digest exists ── #}
 {% else %}
 <article class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-8 mb-6">
-    <div class="font-serif text-base leading-relaxed text-gray-800 dark:text-gray-200">
+    <div class="font-serif text-base leading-relaxed text-gray-800 dark:text-gray-200 digest-body">
         {{ digest.summary_text | markdown | safe }}
     </div>
     <footer class="mt-6 pt-4 border-t border-gray-100 dark:border-slate-800 text-sm text-gray-400 dark:text-slate-500">
@@ -228,7 +228,7 @@
                 <span class="footnote-expand-icon text-xs text-gray-400 flex-shrink-0 transition-transform">▸</span>
             </button>
             <div class="hidden px-4 py-4 border-t border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
-                <div class="font-serif text-sm leading-relaxed text-gray-700 dark:text-slate-300 mb-3">
+                <div class="font-serif text-sm leading-relaxed text-gray-700 dark:text-slate-300 mb-3 digest-body">
                     {{ video.summary_text | markdown | safe }}
                 </div>
                 <a href="{{ video.url }}" target="_blank" rel="noopener"
