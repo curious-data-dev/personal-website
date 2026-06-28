@@ -82,7 +82,7 @@
         .sidebar-collapsed #sidebar { width: 64px; }
         .sidebar-collapsed #sidebar .sidebar-label { display: none; }
         .sidebar-collapsed #sidebar nav .sidebar-link { justify-content: center; padding-left: 0.25rem; padding-right: 0.25rem; }
-        .sidebar-collapsed #sidebar .sidebar-brand-row .font-bold { display: none; }
+
         .sidebar-collapsed #sidebar #youtubeSubnav { display: none !important; }
         .sidebar-collapsed #themeToggle { justify-content: center; }
     </style>
@@ -148,9 +148,9 @@
             transition: all 0.15s; text-decoration: none; white-space: nowrap; overflow: hidden;
         }
         .sidebar-link:hover { color: #171717; background: #f9fafb; }
-        .dark .sidebar-link:hover { color: #e2e8f0; background: rgba(30,41,59,0.8); }
+        [data-theme="dark"] .sidebar-link:hover { color: #e2e8f0; background: rgba(30,41,59,0.8); }
         .sidebar-link-active { color: #2563eb; background: #eff6ff; }
-        .dark .sidebar-link-active { color: #60a5fa; background: rgba(37,99,235,0.1); }
+        [data-theme="dark"] .sidebar-link-active { color: #60a5fa; background: rgba(37,99,235,0.1); }
     </style>
 
     {# ── JavaScript: Sidebar toggle, theme, mobile drawer, YouTube subnav ── #}
@@ -180,14 +180,13 @@
         document.getElementById('mobileThemeToggle').addEventListener('click', toggleTheme);
 
         // ── Desktop sidebar collapse ──
-        const mainContent = document.getElementById('mainContent');
         const sidebarToggle = document.getElementById('sidebarToggle');
         const savedCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
-        if (savedCollapsed) { mainContent.classList.add('sidebar-collapsed'); }
+        if (savedCollapsed) { document.body.classList.add('sidebar-collapsed'); }
 
         sidebarToggle.addEventListener('click', () => {
-            mainContent.classList.toggle('sidebar-collapsed');
-            localStorage.setItem('sidebar-collapsed', mainContent.classList.contains('sidebar-collapsed'));
+            document.body.classList.toggle('sidebar-collapsed');
+            localStorage.setItem('sidebar-collapsed', document.body.classList.contains('sidebar-collapsed'));
         });
 
         // Also adjust main margin when collapsed
