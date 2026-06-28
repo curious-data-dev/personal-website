@@ -6,167 +6,172 @@
 .inline-edit-form { display:none; padding:0.4rem 0; }
 .inline-edit-form.active { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; }
 .inline-edit-form input {
-    padding:0.3rem 0.45rem; border:1px solid var(--border);
-    border-radius:4px; font-size:0.8rem; background:var(--bg); color:var(--text);
+    padding:0.3rem 0.45rem; border:1px solid #d1d5db; border-radius:4px; font-size:0.8rem; background:var(--bg); color:var(--text);
 }
+.dark .inline-edit-form input { border-color: #334155; background: #0f172a; color: #e2e8f0; }
 .test-results {
     display:none; margin-top:0.4rem; padding:0.6rem 0.75rem;
-    background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
+    background:#f9fafb; border:1px solid #e5e7eb; border-radius:0.375rem;
     font-size:0.8rem; max-height:250px; overflow-y:auto;
 }
+.dark .test-results { background: #0f172a; border-color: #334155; }
 .test-results.active { display:block; }
-.test-article {
-    padding:0.35rem 0; border-bottom:1px solid var(--border);
-}
+.test-article { padding:0.35rem 0; border-bottom:1px solid #e5e7eb; }
+.dark .test-article { border-bottom-color: #334155; }
 .test-article:last-child { border-bottom:none; }
-.test-article a { font-weight:500; }
-.test-article .test-meta { font-size:0.72rem; color:var(--text-muted); }
+.test-article a { font-weight:500; color: #2563eb; }
+.dark .test-article a { color: #60a5fa; }
+.test-article .test-meta { font-size:0.72rem; color:#6b7280; }
+.dark .test-article .test-meta { color: #94a3b8; }
 section:has(#btn-scrape) { display:none; }
 .run-source-choice { display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer;font-weight:600; }
-.run-source { width:1.15rem;height:1.15rem;accent-color:var(--accent);cursor:pointer; }
+.run-source { width:1.15rem;height:1.15rem;accent-color: #2563eb;cursor:pointer; }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<h1>⚙️ Settings</h1>
+<h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">⚙️ Settings</h1>
 
 {# ── Model Selector ── #}
-<div class="card" style="padding:0.75rem 1rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-    <label style="font-size:0.85rem;font-weight:500;white-space:nowrap;">🤖 LLM Model:</label>
-    <select id="model-select" style="padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem;background:var(--bg);color:var(--text);min-width:200px;">
+<div class="flex items-center gap-3 flex-wrap rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 mb-6">
+    <label class="text-sm font-medium text-gray-700 dark:text-slate-300 whitespace-nowrap">🤖 LLM Model:</label>
+    <select id="model-select" class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]">
         <option value="gemma-4-31b-it">Gemma 4 31B (Gemini)</option>
         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
         <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq)</option>
         <option value="deepseek-chat">DeepSeek Chat</option>
     </select>
-    <small style="color:var(--text-muted);">Model used for summarization &amp; digest regeneration</small>
+    <small class="text-gray-400 dark:text-slate-500 text-xs">Model used for summarization &amp; digest regeneration</small>
 </div>
 
 {# ── Running Jobs ── #}
-<div id="running-jobs" class="card" style="display:none;padding:1rem;margin-bottom:1rem;">
-    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
-        <span style="font-size:1.1rem;">🔄</span>
-        <strong style="color:var(--ink);">Running Jobs</strong>
+<div id="running-jobs" style="display:none;" class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 mb-6">
+    <div class="flex items-center gap-2 mb-3">
+        <span class="text-lg">🔄</span>
+        <strong class="text-gray-900 dark:text-white">Running Jobs</strong>
     </div>
-    <div id="jobs-list" style="font-size:0.84rem;"></div>
+    <div id="jobs-list" class="text-sm"></div>
 </div>
 
-<section style="margin-bottom:2rem;">
-    <h2>Unified Sources &amp; Run</h2>
-    <p style="color:var(--text-muted);font-size:0.88rem;">Selection applies only to this run. Permanent active state is unchanged.</p>
-    <div class="card" style="padding:1rem;margin-bottom:1rem;">
-        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">
-            <button type="button" class="btn btn-sm" onclick="setRunSelection(true)">Select active</button>
-            <button type="button" class="btn btn-sm" onclick="setRunSelection(false)">Clear</button>
-            <select id="source-type-filter" onchange="filterRunSources()"><option value="">All types</option><option value="rss">RSS</option><option value="youtube">YouTube</option></select>
+{# ── Unified Sources & Run ── #}
+<section class="mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Unified Sources &amp; Run</h2>
+    <p class="text-sm text-gray-500 dark:text-slate-400 mb-4">Selection applies only to this run. Permanent active state is unchanged.</p>
+    <div class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6">
+        <div class="flex gap-2 flex-wrap mb-4">
+            <button type="button" class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-400 text-sm px-3 py-1.5 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors" onclick="setRunSelection(true)">Select active</button>
+            <button type="button" class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-400 text-sm px-3 py-1.5 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors" onclick="setRunSelection(false)">Clear</button>
+            <select id="source-type-filter" onchange="filterRunSources()" class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 text-sm py-1.5 px-3 focus:ring-2 focus:ring-blue-500">
+                <option value="">All types</option><option value="rss">RSS</option><option value="youtube">YouTube</option>
+            </select>
         </div>
-        <div class="table-wrap"><table class="source-table">
-            <thead><tr><th>Run</th><th>Type</th><th>Source</th><th>Permanent state</th><th>Last checked</th></tr></thead>
-            <tbody>{% for src in all_sources %}<tr class="run-source-row" data-type="{{ src.source_type }}">
-                <td><label class="run-source-choice"><input class="run-source" type="checkbox" value="{{ src.id }}" data-active="{{ 1 if src.is_active else 0 }}" {% if src.is_active %}checked{% endif %}> Select</label></td>
-                <td>{{ src.source_type|upper }}</td><td>{{ src.name }}</td><td><button class="btn btn-sm" onclick="togglePermanent({{ src.id }}, {{ 'true' if src.is_active else 'false' }})">{{ 'Active' if src.is_active else 'Inactive' }}</button></td><td>{{ src.last_fetched_at or 'Never' }}</td>
-            </tr>{% endfor %}</tbody>
-        </table></div>
-        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1rem;align-items:end;">
-            <label>Start date (optional)<br><input type="date" id="run-start"></label>
-            <label>End date (optional)<br><input type="date" id="run-end"></label>
-            <button id="btn-unified-run" class="btn btn-primary" onclick="startUnifiedRun()">Run selected sources</button>
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm"><thead><tr class="bg-gray-50 dark:bg-slate-800 text-xs uppercase text-gray-500 dark:text-slate-400 tracking-wider"><th class="text-left px-4 py-3 font-medium">Run</th><th class="text-left px-4 py-3 font-medium">Type</th><th class="text-left px-4 py-3 font-medium">Source</th><th class="text-left px-4 py-3 font-medium">Permanent state</th><th class="text-left px-4 py-3 font-medium">Last checked</th></tr></thead>
+        <tbody>
+        {% for src in all_sources %}
+        <tr class="run-source-row border-t border-gray-50 dark:border-slate-800 hover:bg-gray-50/50 dark:hover:bg-slate-800/50" data-type="{{ src.source_type }}">
+            <td class="px-4 py-3"><label class="run-source-choice"><input class="run-source" type="checkbox" value="{{ src.id }}" data-active="{{ 1 if src.is_active else 0 }}" {% if src.is_active %}checked{% endif %}> Select</label></td>
+            <td class="px-4 py-3 text-xs font-medium text-gray-500 dark:text-slate-400">{{ src.source_type|upper }}</td>
+            <td class="px-4 py-3 font-medium text-gray-900 dark:text-white">{{ src.name }}</td>
+            <td class="px-4 py-3"><button class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-400 text-xs px-2.5 py-1 hover:text-blue-600 hover:border-blue-300 transition-colors" onclick="togglePermanent({{ src.id }}, {{ 'true' if src.is_active else 'false' }})">{{ 'Active' if src.is_active else 'Inactive' }}</button></td>
+            <td class="px-4 py-3 text-xs text-gray-400 dark:text-slate-500">{{ src.last_fetched_at or 'Never' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
         </div>
-        <div id="unified-run-result" style="margin-top:0.75rem;font-size:0.88rem;"></div>
+        <div class="flex gap-3 flex-wrap mt-4 items-end">
+            <label class="text-xs text-gray-500 dark:text-slate-400">Start date (optional)<br><input type="date" id="run-start" class="mt-1 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500"></label>
+            <label class="text-xs text-gray-500 dark:text-slate-400">End date (optional)<br><input type="date" id="run-end" class="mt-1 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500"></label>
+            <button id="btn-unified-run" class="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition-colors active:scale-95" onclick="startUnifiedRun()">Run selected sources</button>
+        </div>
+        <div id="unified-run-result" class="mt-4 text-sm"></div>
     </div>
 </section>
 
 {# ── Manual Triggers ── #}
-<section style="margin-bottom:2rem;">
-    <h2>🔄 Manual Sync</h2>
-    <div class="admin-grid">
+<section class="mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">🔄 Manual Sync</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         {# Scrape #}
-        <div class="card">
-            <h3 style="margin-top:0;">📥 Scrape RSS Feeds</h3>
-            <p style="font-size:0.88rem;color:var(--text-muted);">Fetch new articles from all configured RSS feeds.</p>
-            <label style="display:block;font-size:0.82rem;font-weight:500;margin-bottom:0.35rem;">Start date (optional)</label>
-            <input type="date" id="scrape-start" style="width:100%;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem;margin-bottom:0.5rem;background:var(--bg);color:var(--text);">
-            <label style="display:block;font-size:0.82rem;font-weight:500;margin-bottom:0.35rem;">End date (optional)</label>
-            <input type="date" id="scrape-end" style="width:100%;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem;margin-bottom:0.75rem;background:var(--bg);color:var(--text);">
-            <small style="color:var(--text-muted);display:block;margin-bottom:0.75rem;">Leave both empty to scrape the last 24 hours.</small>
-            <button id="btn-scrape" onclick="triggerScrape()" class="btn btn-primary">Run RSS Scrape</button>
-            <pre id="scrape-result" style="display:none;"></pre>
+        <div class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">📥 Scrape RSS Feeds</h3>
+            <p class="text-sm text-gray-500 dark:text-slate-400 mb-4">Fetch new articles from all configured RSS feeds.</p>
+            <label class="block text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">Start date (optional)</label>
+            <input type="date" id="scrape-start" class="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm py-2 px-3 mb-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            <label class="block text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">End date (optional)</label>
+            <input type="date" id="scrape-end" class="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm py-2 px-3 mb-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            <small class="block text-xs text-gray-400 dark:text-slate-500 mb-4">Leave both empty to scrape the last 24 hours.</small>
+            <button id="btn-scrape" onclick="triggerScrape()" class="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition-colors active:scale-95">Run RSS Scrape</button>
+            <pre id="scrape-result" style="display:none;" class="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-xs font-mono text-gray-700 dark:text-slate-300 overflow-x-auto"></pre>
         </div>
 
         {# Summarize #}
-        <div class="card">
-            <h3 style="margin-top:0;">🤖 Summarize &amp; Digest</h3>
-            <p style="font-size:0.88rem;color:var(--text-muted);">Summarize all raw articles and generate daily digests (RSS + YouTube).</p>
-            <button id="btn-summarize" onclick="triggerSummarize()" class="btn btn-primary">Run Summarization</button>
-            <pre id="summarize-result" style="display:none;"></pre>
+        <div class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">🤖 Summarize &amp; Digest</h3>
+            <p class="text-sm text-gray-500 dark:text-slate-400 mb-4">Summarize all raw articles and generate daily digests (RSS + YouTube).</p>
+            <button id="btn-summarize" onclick="triggerSummarize()" class="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition-colors active:scale-95">Run Summarization</button>
+            <pre id="summarize-result" style="display:none;" class="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-xs font-mono text-gray-700 dark:text-slate-300 overflow-x-auto"></pre>
         </div>
 
         {# YouTube Scrape #}
-        <div class="card">
-            <h3 style="margin-top:0;">🎬 Scrape YouTube</h3>
-            <p style="font-size:0.88rem;color:var(--text-muted);">Fetch transcripts from configured YouTube channels.</p>
-            <button id="btn-youtube" onclick="triggerJob('youtube')" class="btn btn-primary">Run YouTube Scrape</button>
-            <span id="status-youtube" class="job-status"></span>
+        <div class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">🎬 Scrape YouTube</h3>
+            <p class="text-sm text-gray-500 dark:text-slate-400 mb-4">Fetch transcripts from configured YouTube channels.</p>
+            <button id="btn-youtube" onclick="triggerJob('youtube')" class="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition-colors active:scale-95">Run YouTube Scrape</button>
+            <span id="status-youtube" class="inline-block mt-2 text-sm italic text-gray-400 dark:text-slate-500"></span>
         </div>
     </div>
 </section>
 
-{# ── Status Dashboard ── #}
-<section style="margin-bottom:2rem;">
-    <h2>📊 Status Overview</h2>
-    <div class="card" style="padding:1rem 1.25rem;">
-        <div id="status-dashboard">
-            <p style="color:var(--text-muted);">Loading...</p>
-        </div>
+{# ── Status Overview ── #}
+<section class="mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">📊 Status Overview</h2>
+    <div class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6">
+        <div id="status-dashboard"><p class="text-gray-400 dark:text-slate-500 text-sm">Loading...</p></div>
     </div>
 </section>
 
 {# ── YouTube Channels ── #}
-<section style="margin-bottom:2rem;">
-    <h2>🎬 YouTube Channels</h2>
-    <p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1rem;">
-        Add channels by @handle (e.g. <code>@veritasium</code>) or full channel URL.
-    </p>
-
-    <form id="add-youtube-form" class="inline-form" style="display:flex;gap:0.5rem;margin-bottom:1.25rem;" onsubmit="addYouTubeChannel(event)">
+<section class="mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">🎬 YouTube Channels</h2>
+    <p class="text-sm text-gray-500 dark:text-slate-400 mb-4">Add channels by @handle (e.g. <code class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-slate-800 text-xs">@veritasium</code>) or full channel URL.</p>
+    <form id="add-youtube-form" class="flex gap-2 mb-5" onsubmit="addYouTubeChannel(event)">
         <input type="text" id="youtube-handle" placeholder="@Handle or channel URL" required
-            style="flex:1;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--ink);font-size:0.95rem;">
-        <button type="submit" class="btn btn-primary">Add Channel</button>
+            class="flex-1 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white py-2 px-4 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        <button type="submit" class="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition-colors active:scale-95 whitespace-nowrap">Add Channel</button>
     </form>
-    <div id="youtube-add-error" style="color:#d93526;font-size:0.85rem;display:none;margin-bottom:0.75rem;"></div>
+    <div id="youtube-add-error" style="display:none;" class="text-red-600 dark:text-red-400 text-sm mb-4"></div>
 
     {% if youtube_sources %}
-    <div class="table-wrap">
-        <table class="source-table">
-            <thead>
-                <tr><th>Channel</th><th>Status</th><th>Actions</th></tr>
-            </thead>
-            <tbody>
-                {% for src in youtube_sources %}
-                <tr>
-                    <td><strong>{{ src.name }}</strong></td>
-                    <td><span class="status-badge {% if src.is_active %}ok{% else %}warn{% endif %}">{{ 'Active' if src.is_active else 'Paused' }}</span></td>
-                    <td style="display:flex;gap:0.5rem;align-items:center;">
-                        <button class="btn btn-sm" onclick="toggleYouTubeChannel({{ src.id }})">{{ '⏸ Pause' if src.is_active else '▶ Resume' }}</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteYouTubeChannel({{ src.id }}, '{{ src.name | e }}')">🗑</button>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="overflow-x-auto rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+    <table class="w-full text-sm"><thead><tr class="bg-gray-50 dark:bg-slate-800 text-xs uppercase text-gray-500 dark:text-slate-400 tracking-wider"><th class="text-left px-4 py-3 font-medium">Channel</th><th class="text-left px-4 py-3 font-medium">Status</th><th class="text-left px-4 py-3 font-medium">Actions</th></tr></thead>
+    <tbody>
+        {% for src in youtube_sources %}
+        <tr class="border-t border-gray-50 dark:border-slate-800 hover:bg-gray-50/50 dark:hover:bg-slate-800/50">
+            <td class="px-4 py-3 font-medium text-gray-900 dark:text-white">{{ src.name }}</td>
+            <td class="px-4 py-3"><span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {% if src.is_active %}bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300{% else %}bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300{% endif %}">{{ 'Active' if src.is_active else 'Paused' }}</span></td>
+            <td class="px-4 py-3">
+                <div class="flex gap-2 items-center">
+                    <button class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-400 text-xs px-2.5 py-1 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 transition-colors" onclick="toggleYouTubeChannel({{ src.id }})">{{ '⏸ Pause' if src.is_active else '▶ Resume' }}</button>
+                    <button class="rounded-lg border border-red-300 dark:border-red-800 bg-white dark:bg-slate-900 text-red-600 dark:text-red-400 text-xs px-2.5 py-1 hover:bg-red-50 dark:hover:bg-red-950 transition-colors" onclick="deleteYouTubeChannel({{ src.id }}, '{{ src.name | e }}')">🗑</button>
+                </div>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody></table>
     </div>
     {% else %}
-    <p style="color:var(--text-muted);">No YouTube channels added yet.</p>
+    <p class="text-sm text-gray-400 dark:text-slate-500">No YouTube channels added yet.</p>
     {% endif %}
 </section>
 
 {# ── RSS Sources ── #}
-<section style="margin-bottom:2rem;">
-    <h2>📡 RSS Sources</h2>
-    <p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1rem;">
+<section class="mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">📡 RSS Sources</h2>
+    <p class="text-sm text-gray-500 dark:text-slate-400">
         {{ rss_sources|length }} source{{ 's' if rss_sources|length != 1 else '' }} configured.
-        <a href="/sources">Manage all RSS sources →</a>
+        <a href="/sources" class="text-blue-600 dark:text-blue-400 hover:underline ml-1">Manage all RSS sources →</a>
     </p>
 </section>
 
