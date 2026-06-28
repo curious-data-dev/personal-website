@@ -32,9 +32,9 @@
 {% if article.summary_text %}
 <div class="summary-card">
     <h3>📝 Summary</h3>
-    {% for paragraph in article.summary_text.split('\n\n') %}
-        <p>{{ paragraph }}</p>
-    {% endfor %}
+    <div class="digest-body">
+        {{ article.summary_text | markdown | safe }}
+    </div>
 </div>
 {% elif article.status == 'summarizing' %}
 <div class="card" style="text-align:center;padding:2rem;">
