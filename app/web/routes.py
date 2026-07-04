@@ -4,6 +4,7 @@ import re
 import secrets
 import threading
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -153,6 +154,57 @@ def _make_anchor(text: str) -> str:
 
 templates.env.filters["markdown"] = render_markdown
 templates.env.filters["make_anchor"] = _make_anchor
+
+
+@dataclass
+class TocEntry:
+    level: int       # 2 for ##, 3 for ###
+    text: str        # raw heading text (for display, rendered inline later)
+    anchor: str      # URL-safe anchor matching the id attribute
+
+
+@dataclass
+class SourceEntry:
+    number: int      # citation number from [[N]]
+    url: str         # full article URL
+    title: str       # resolved article title, or domain fallback, or ''
+
+
+def extract_toc(text: str) -> list[TocEntry]:
+    """Extract ## and ### headings from markdown text as TOC entries."""
+    entries: list[TocEntry] = []
+    if not text:
+        return entries
+    for match in re.finditer(r'^(#{2,3})\s+(.+?)$', text, re.MULTILINE):
+        level = len(match.group(1))
+        raw = match.group(2).strip()
+        entries.append(TocEntry(level=level, text=raw, anchor=_make_anchor(raw)))
+    return entries
+
+
+def extract_citations(text: str) -> list[SourceEntry]:
+    """Extract [[N]](url) citation links from digest text.
+
+    Returns sorted, deduplicated list ordered by citation number.
+    """
+    results: list[SourceEntry] = []
+    if not text:
+        return results
+    for match in re.finditer(r'\[\[(\d+)\]\]\(([^)]+)\)', text):
+        results.append(SourceEntry(
+            number=int(match.group(1)),
+            url=match.group(2),
+            title='',
+        ))
+    # Sort by number, deduplicate by number
+    seen: set[int] = set()
+    unique: list[SourceEntry] = []
+    for s in sorted(results, key=lambda x: x.number):
+        if s.number not in seen:
+            seen.add(s.number)
+            unique.append(s)
+    return unique
+
 
 # ---------------------------------------------------------------------------
 # Simple session-based auth (for manual triggers)
