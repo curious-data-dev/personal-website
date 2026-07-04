@@ -54,6 +54,143 @@ section:has(#btn-scrape) { display:none; }
     <div id="jobs-list" class="text-sm"></div>
 </div>
 
+{# ── Sources (RSS + YouTube) ── #}
+<section class="mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1 cursor-pointer select-none flex items-center gap-2 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" onclick="toggleCollapsible('settings-sources')">
+        <span id="settings-sources-chevron" class="text-xs transition-transform">▶</span>
+        📡 Sources
+    </h2>
+    <p class="text-sm text-gray-500 dark:text-slate-400 mb-4" id="settings-sources-count">
+        {{ all_sources|length }} source{{ 's' if all_sources|length != 1 else '' }} configured
+    </p>
+    <div id="settings-sources" class="hidden rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6">
+
+        {# ── Add buttons ── #}
+        <div class="flex gap-2 mb-4">
+            <button type="button" onclick="showSourceForm('rss')" class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-400 text-sm px-3 py-1.5 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors">+ Add RSS Feed</button>
+            <button type="button" onclick="showSourceForm('youtube')" class="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-400 text-sm px-3 py-1.5 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors">+ Add YouTube Channel</button>
+        </div>
+
+        {# ── Add RSS form ── #}
+        <div id="add-rss-form" style="display:none;" class="mb-4 p-4 rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50">
+            <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Add RSS Feed</h4>
+            <form id="settings-add-rss" class="flex flex-wrap gap-3 items-end">
+                <div class="flex-1 min-w-[180px]">
+                    <label class="block text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">Feed URL *</label>
+                    <input type="url" name="feed_url" required placeholder="https://example.com/rss"
+                           class="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="flex-1 min-w-[130px]">
+                    <label class="block text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">Name *</label>
+                    <input type="text" name="name" required placeholder="My Feed"
+                           class="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="flex-1 min-w-[100px]">
+                    <label class="block text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">Category</label>
+                    <input type="text" name="category" placeholder="e.g. tech"
+                           class="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="flex-1 min-w-[110px]">
+                    <label class="block text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">Site URL</label>
+                    <input type="url" name="site_url" placeholder="https://..."
+                           class="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <button type="submit" class="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition-colors active:scale-95 whitespace-nowrap">Add Feed</button>
+            </form>
+            <div id="settings-rss-feedback" class="mt-3 text-sm hidden"></div>
+        </div>
+
+        {# ── Add YouTube form ── #}
+        <div id="add-youtube-form" style="display:none;" class="mb-4 p-4 rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50">
+            <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Add YouTube Channel</h4>
+            <form id="settings-add-youtube" class="flex gap-2 items-end" onsubmit="settingsAddYouTube(event)">
+                <div class="flex-1 min-w-[200px]">
+                    <label class="block text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">Handle or Channel URL *</label>
+                    <input type="text" id="settings-youtube-handle" required placeholder="@Handle or channel URL"
+                           class="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <button type="submit" class="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition-colors active:scale-95 whitespace-nowrap">Add Channel</button>
+            </form>
+            <div id="settings-youtube-feedback" class="mt-3 text-sm hidden"></div>
+        </div>
+
+        {# ── Unified sources table ── #}
+        {% if all_sources %}
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-gray-50 dark:bg-slate-800 text-xs uppercase text-gray-500 dark:text-slate-400 tracking-wider">
+                    <th class="text-left px-4 py-3 font-medium">Type</th>
+                    <th class="text-left px-4 py-3 font-medium">Name</th>
+                    <th class="text-left px-4 py-3 font-medium">Status</th>
+                    <th class="text-left px-4 py-3 font-medium">Last Checked</th>
+                    <th class="text-left px-4 py-3 font-medium w-[130px]">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for src in all_sources %}
+                <tr id="settings-source-row-{{ src.id }}" class="border-t border-gray-50 dark:border-slate-800 hover:bg-gray-50/50 dark:hover:bg-slate-800/50">
+                    <td class="px-4 py-3 text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">{{ src.source_type }}</td>
+                    <td class="px-4 py-3">
+                        <div id="settings-src-display-{{ src.id }}">
+                            <strong class="text-gray-900 dark:text-white">{{ src.name }}</strong>
+                            {% if src.get('site_url') %}
+                            <br><small><a href="{{ src.site_url }}" target="_blank" rel="noopener" class="text-blue-600 dark:text-blue-400 hover:underline">{{ src.site_url[:60] }}</a></small>
+                            {% endif %}
+                        </div>
+                        <div id="settings-src-edit-{{ src.id }}" class="inline-edit-form">
+                            <input type="text" id="settings-edit-name-{{ src.id }}" value="{{ src.name|e }}" placeholder="Name" class="w-[120px] rounded border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-xs py-1 px-2 focus:ring-2 focus:ring-blue-500">
+                            {% if src.source_type == 'rss' %}
+                            <input type="url" id="settings-edit-feed-{{ src.id }}" value="{{ src.feed_url|e }}" placeholder="Feed URL" class="w-[180px] rounded border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-xs py-1 px-2 focus:ring-2 focus:ring-blue-500">
+                            <input type="text" id="settings-edit-cat-{{ src.id }}" value="{{ src.category or '' }}" placeholder="Category" class="w-[90px] rounded border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-xs py-1 px-2 focus:ring-2 focus:ring-blue-500">
+                            <input type="url" id="settings-edit-site-{{ src.id }}" value="{{ src.site_url or '' }}" placeholder="Site URL" class="w-[150px] rounded border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-xs py-1 px-2 focus:ring-2 focus:ring-blue-500">
+                            {% endif %}
+                            <button onclick="settingsSaveEdit({{ src.id }}, '{{ src.source_type }}')" class="rounded bg-blue-600 text-white text-xs px-2 py-1 cursor-pointer hover:bg-blue-700 transition-colors">Save</button>
+                            <button onclick="settingsCancelEdit({{ src.id }})" class="rounded border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 text-xs px-2 py-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">Cancel</button>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3">
+                        <span id="settings-status-badge-{{ src.id }}">
+                        {% if src.is_active %}
+                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">Active</span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300">Inactive</span>
+                        {% endif %}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-gray-500 dark:text-slate-400" id="settings-last-fetched-{{ src.id }}">
+                        {% if src.last_fetched_at %}{{ src.last_fetched_at[:16] }}{% else %}<span>Never</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3">
+                        <div class="flex items-center gap-1">
+                            {% if src.source_type == 'rss' %}
+                            <button id="settings-test-btn-{{ src.id }}" onclick="settingsTestSource({{ src.id }})" title="Scrape &amp; summarize this feed"
+                                    class="flex items-center justify-center w-7 h-7 rounded border border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors bg-white dark:bg-slate-900 cursor-pointer text-xs">🧪</button>
+                            {% endif %}
+                            <button onclick="settingsEditSource({{ src.id }})" title="Edit"
+                                    class="flex items-center justify-center w-7 h-7 rounded border border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors bg-white dark:bg-slate-900 cursor-pointer text-xs">✏️</button>
+                            <button onclick="settingsToggleSource({{ src.id }}, '{{ src.source_type }}', {{ 'false' if src.is_active else 'true' }})" title="{{ 'Deactivate' if src.is_active else 'Activate' }}"
+                                    class="flex items-center justify-center w-7 h-7 rounded border border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-600 transition-colors bg-white dark:bg-slate-900 cursor-pointer text-xs">{{ '⏸' if src.is_active else '▶' }}</button>
+                            <button onclick="settingsDeleteSource({{ src.id }}, '{{ src.source_type }}', '{{ src.name|e }}')" title="Delete"
+                                    class="flex items-center justify-center w-7 h-7 rounded border border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 hover:text-red-600 hover:border-red-300 dark:hover:text-red-400 dark:hover:border-red-600 transition-colors bg-white dark:bg-slate-900 cursor-pointer text-xs">🗑</button>
+                        </div>
+                    </td>
+                </tr>
+                <tr id="settings-test-row-{{ src.id }}" style="display:none;" class="border-t border-gray-50 dark:border-slate-800">
+                    <td colspan="5" class="px-4 pb-4">
+                        <div id="settings-test-results-{{ src.id }}" class="test-results"></div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-400 dark:text-slate-500 text-center py-8">No sources configured yet. Add an RSS feed or YouTube channel above.</p>
+        {% endif %}
+    </div>
+</section>
+
 {# ── Unified Sources & Run ── #}
 <section class="mb-8">
     <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1 cursor-pointer select-none flex items-center gap-2 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" onclick="toggleCollapsible('unified-sources')">
@@ -184,7 +321,7 @@ function toggleCollapsible(id) {
     localStorage.setItem('settings-' + id + '-open', isHidden);
 }
 // Restore saved state
-['unified-sources', 'status-overview'].forEach(id => {
+['settings-sources', 'unified-sources', 'status-overview'].forEach(id => {
     if (localStorage.getItem('settings-' + id + '-open') === 'true') {
         const el = document.getElementById(id);
         const chevron = document.getElementById(id + '-chevron');
@@ -454,6 +591,214 @@ function escHtml(str) {
     div.textContent = str;
     return div.innerHTML;
 }
+
+// ── Settings Sources: form visibility ──
+function showSourceForm(type) {
+    document.getElementById('add-rss-form').style.display = type === 'rss' ? 'block' : 'none';
+    document.getElementById('add-youtube-form').style.display = type === 'youtube' ? 'block' : 'none';
+}
+
+// ── Settings Sources: Add RSS ──
+document.getElementById('settings-add-rss').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
+    const fb = document.getElementById('settings-rss-feedback');
+    btn.disabled = true; btn.textContent = 'Adding...'; fb.style.display = 'none';
+    try {
+        const body = {
+            feed_url: form.feed_url.value.trim(),
+            name: form.name.value.trim(),
+            category: form.category.value.trim(),
+            site_url: form.site_url.value.trim(),
+        };
+        const res = await fetch('/api/sources', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+        if (res.status === 401) {
+            fb.style.display = 'block'; fb.style.color = '#c00';
+            fb.innerHTML = '🔒 <a href="/login">Log in</a> first.';
+            btn.disabled = false; btn.textContent = 'Add Feed';
+            return;
+        }
+        const data = await res.json();
+        fb.style.display = 'block';
+        if (res.ok) { fb.style.color = '#155724'; fb.textContent = '✅ Feed added! Reloading...'; setTimeout(() => location.reload(), 800); }
+        else { fb.style.color = '#721c24'; fb.textContent = '❌ ' + (data.detail || 'Failed'); }
+    } catch(err) { fb.style.display = 'block'; fb.style.color = '#721c24'; fb.textContent = '❌ Network error'; }
+    btn.disabled = false; btn.textContent = 'Add Feed';
+});
+
+// ── Settings Sources: Add YouTube ──
+async function settingsAddYouTube(e) {
+    e.preventDefault();
+    const input = document.getElementById('settings-youtube-handle');
+    const fb = document.getElementById('settings-youtube-feedback');
+    const handle = input.value.trim();
+    if (!handle) return;
+    fb.style.display = 'none';
+    try {
+        const resp = await fetch('/api/youtube/sources', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({handle})});
+        const data = await resp.json();
+        if (resp.ok) { window.location.reload(); }
+        else { fb.textContent = data.detail || 'Failed to add channel'; fb.style.color = '#721c24'; fb.style.display = 'block'; }
+    } catch(err) { fb.textContent = 'Network error: ' + err.message; fb.style.color = '#721c24'; fb.style.display = 'block'; }
+}
+
+// ── Settings Sources: Edit ──
+function settingsEditSource(id) {
+    document.getElementById('settings-src-display-' + id).style.display = 'none';
+    document.getElementById('settings-src-edit-' + id).classList.add('active');
+}
+function settingsCancelEdit(id) {
+    document.getElementById('settings-src-display-' + id).style.display = '';
+    document.getElementById('settings-src-edit-' + id).classList.remove('active');
+}
+
+async function settingsSaveEdit(id, sourceType) {
+    const name = document.getElementById('settings-edit-name-' + id).value.trim();
+    const body = { name };
+
+    if (sourceType === 'rss') {
+        body.feed_url = document.getElementById('settings-edit-feed-' + id).value.trim();
+        body.category = document.getElementById('settings-edit-cat-' + id).value.trim();
+        body.site_url = document.getElementById('settings-edit-site-' + id).value.trim();
+    }
+
+    const endpoint = sourceType === 'rss' ? '/api/sources/' + id : '/api/youtube/sources/' + id;
+    const method = sourceType === 'rss' ? 'PUT' : 'PATCH';
+
+    try {
+        const res = await fetch(endpoint, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+        if (res.status === 401) { alert('🔒 Please log in first.'); settingsCancelEdit(id); return; }
+        if (res.ok) { location.reload(); }
+        else { const data = await res.json(); alert('❌ ' + (data.detail || 'Edit failed')); }
+    } catch(err) { alert('❌ Network error'); }
+}
+
+// ── Settings Sources: Toggle ──
+async function settingsToggleSource(id, sourceType, makeActive) {
+    const endpoint = sourceType === 'rss'
+        ? '/api/sources/' + id
+        : '/api/youtube/sources/' + id + '/toggle';
+    const method = sourceType === 'rss' ? 'PATCH' : 'POST';
+    const body = sourceType === 'rss' ? JSON.stringify({is_active: makeActive}) : undefined;
+    try {
+        const res = await fetch(endpoint, {method, headers:{'Content-Type':'application/json'}, body});
+        if (res.status === 401) { alert('🔒 Please log in first.'); return; }
+        if (res.ok) location.reload();
+        else { const data = await res.json(); alert('❌ ' + (data.detail || 'Toggle failed')); }
+    } catch(err) { alert('❌ Network error'); }
+}
+
+// ── Settings Sources: Delete ──
+async function settingsDeleteSource(id, sourceType, name) {
+    if (!confirm('Delete "' + name + '" and all its content?')) return;
+    const endpoint = sourceType === 'rss'
+        ? '/api/sources/' + id
+        : '/api/youtube/sources/' + id;
+    try {
+        const res = await fetch(endpoint, {method:'DELETE'});
+        if (res.status === 401) { alert('🔒 Please log in first.'); return; }
+        if (res.ok) {
+            const row = document.getElementById('settings-source-row-' + id);
+            if (row) row.remove();
+            const testRow = document.getElementById('settings-test-row-' + id);
+            if (testRow) testRow.remove();
+            // Update count
+            const remaining = document.querySelectorAll('tr[id^="settings-source-row-"]').length;
+            const countEl = document.getElementById('settings-sources-count');
+            if (countEl) countEl.textContent = remaining + ' source' + (remaining !== 1 ? 's' : '') + ' configured';
+            if (remaining === 0) location.reload();
+        } else {
+            const data = await res.json(); alert('❌ ' + (data.detail || 'Delete failed'));
+        }
+    } catch(err) { alert('❌ Network error'); }
+}
+
+// ── Settings Sources: Test RSS ──
+async function settingsTestSource(id) {
+    const btn = document.getElementById('settings-test-btn-' + id);
+    const resultsRow = document.getElementById('settings-test-row-' + id);
+    const resultsDiv = document.getElementById('settings-test-results-' + id);
+
+    btn.textContent = '⏳'; btn.disabled = true;
+    resultsRow.style.display = '';
+    resultsDiv.classList.add('active');
+    resultsDiv.innerHTML = '<span style="color:var(--text-muted);">⏳ Scraping & summarizing...</span>';
+
+    try {
+        const res = await fetch('/api/sources/' + id + '/test', {method:'POST'});
+        if (res.status === 401) {
+            resultsDiv.innerHTML = '<span style="color:#c00;">🔒 Login required. <a href="/login">Log in</a> first.</span>';
+            settingsResetTestBtn(id, btn, resultsRow);
+            return;
+        }
+        const data = await res.json();
+        if (!data.ok) {
+            resultsDiv.innerHTML = '<span style="color:#721c24;">❌ Failed to start test</span>';
+            settingsResetTestBtn(id, btn, resultsRow);
+            return;
+        }
+    } catch(err) {
+        resultsDiv.innerHTML = '<span style="color:#721c24;">❌ Network error</span>';
+        settingsResetTestBtn(id, btn, resultsRow);
+        return;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 60;
+    async function poll() {
+        try {
+            const srcRes = await fetch('/api/sources/' + id);
+            const src = await srcRes.json();
+            const lastFetched = src.last_fetched_at;
+            if (lastFetched && attempts > 1) {
+                const artRes = await fetch('/api/sources/' + id + '/articles?limit=5');
+                const artData = await artRes.json();
+                const articles = artData.articles || [];
+                const summarized = articles.filter(a => a.status === 'summarized').length;
+                const lfCell = document.getElementById('settings-last-fetched-' + id);
+                if (lfCell) lfCell.textContent = lastFetched ? lastFetched.substring(0, 16) : '—';
+                btn.textContent = '✅ ' + articles.length;
+                btn.style.color = '#155724';
+                if (articles.length === 0) {
+                    resultsDiv.innerHTML = '<span style="color:var(--text-muted);">No new articles found in this feed.</span>';
+                } else {
+                    let html = '<div style="margin-bottom:0.25rem;font-weight:500;color:var(--ink);">📰 ' + articles.length + ' article(s) fetched, ' + summarized + ' summarized</div>';
+                    for (const a of articles) {
+                        const statusIcon = a.status === 'summarized' ? '✅' : a.status === 'failed' ? '❌' : a.status === 'raw' ? '📄' : '⏳';
+                        html += '<div class="test-article"><a href="/article/' + a.id + '">' + escHtml(a.title || 'Untitled') + '</a><div class="test-meta">' + statusIcon + ' ' + a.status;
+                        if (a.url) html += ' · <a href="' + a.url + '" target="_blank" rel="noopener" style="font-size:0.72rem;">View original →</a>';
+                        html += '</div>';
+                        if (a.summary_text) html += '<div class="test-excerpt">' + escHtml(a.summary_text.substring(0, 200)) + '…</div>';
+                        html += '</div>';
+                    }
+                    resultsDiv.innerHTML = html;
+                }
+                setTimeout(() => { resultsRow.style.display = 'none'; resultsDiv.classList.remove('active'); }, 15000);
+                settingsResetTestBtn(id, btn, resultsRow, false);
+                return;
+            }
+            attempts++;
+            if (attempts < maxAttempts) { setTimeout(poll, 2000); }
+            else { resultsDiv.innerHTML = '<span style="color:var(--text-muted);">⏱ Timed out. Check Admin panel.</span>'; settingsResetTestBtn(id, btn, resultsRow); }
+        } catch(err) { resultsDiv.innerHTML = '<span style="color:#721c24;">❌ Error polling status</span>'; settingsResetTestBtn(id, btn, resultsRow); }
+    }
+    poll();
+}
+
+function settingsResetTestBtn(id, btn, resultsRow, hideResults) {
+    if (hideResults === undefined) hideResults = true;
+    setTimeout(() => { btn.textContent = '🧪'; btn.disabled = false; btn.style.color = 'var(--text-muted)'; }, hideResults ? 500 : 3000);
+}
+
+// ── Restore collapsible state for settings-sources ──
+(function() {
+    if (localStorage.getItem('settings-settings-sources-open') === 'true') {
+        const el = document.getElementById('settings-sources');
+        const chevron = document.getElementById('settings-sources-chevron');
+        if (el && chevron) { el.classList.remove('hidden'); chevron.textContent = '▼'; }
+    }
+})();
 
 loadStatus();
 </script>
