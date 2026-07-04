@@ -158,7 +158,6 @@
         .sidebar-collapsed #sidebar .sidebar-label { display: none; }
         .sidebar-collapsed #sidebar nav .sidebar-link { justify-content: center; padding-left: 0.25rem; padding-right: 0.25rem; }
 
-        .sidebar-collapsed #sidebar #youtubeSubnav { display: none !important; }
         .sidebar-collapsed #themeToggle { justify-content: center; }
 
         /* ── Right sidebar visibility ── */
@@ -430,6 +429,47 @@
                 else { collapse(); localStorage.setItem(STORAGE_KEY, 'false'); }
             });
         }
+
+        // ── YouTube temporary expand when sidebar is collapsed ──
+        (function() {
+            const sidebar = document.getElementById('sidebar');
+            const ytNav = document.getElementById('youtubeNav');
+            if (!sidebar || !ytNav) return;
+
+            let tempExpanded = false;
+
+            ytNav.addEventListener('click', function(e) {
+                if (!document.body.classList.contains('sidebar-collapsed')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                document.body.classList.remove('sidebar-collapsed');
+                tempExpanded = true;
+            });
+
+            document.addEventListener('click', function(e) {
+                if (!tempExpanded) return;
+                if (!sidebar.contains(e.target)) {
+                    document.body.classList.add('sidebar-collapsed');
+                    tempExpanded = false;
+                }
+            });
+
+            sidebar.querySelectorAll('a.sidebar-link').forEach(function(link) {
+                link.addEventListener('click', function() {
+                    if (tempExpanded) {
+                        document.body.classList.add('sidebar-collapsed');
+                        tempExpanded = false;
+                    }
+                });
+            });
+
+            const toggleBtn = document.getElementById('sidebarToggle');
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', function() {
+                    tempExpanded = false;
+                });
+            }
+        })();
 
         // ── TOC group toggle ──
         (function() {
