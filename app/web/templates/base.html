@@ -152,6 +152,16 @@
         .sidebar-collapsed #sidebar #youtubeSubnav { display: none !important; }
         .sidebar-collapsed #themeToggle { justify-content: center; }
 
+        /* ── Right sidebar visibility ── */
+        #rightSidebar {
+            display: none;
+        }
+        @media (min-width: 1280px) {
+            #rightSidebar {
+                display: block;
+            }
+        }
+
         /* ── TOC collapsible groups ── */
         .toc-link-active {
             color: #2563eb !important;
