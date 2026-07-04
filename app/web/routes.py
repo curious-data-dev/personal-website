@@ -486,18 +486,8 @@ async def youtube_daily(request: Request, channel: int | None = None, date: str 
         if digest and digest.get("summary_text"):
             toc = extract_toc(digest["summary_text"])
             sources = extract_citations(digest["summary_text"])
-            if sources and digest_videos:
-                url_map: dict[str, str] = {}
-                for v in digest_videos:
-                    u = v.get("url")
-                    if u:
-                        url_map[u] = v.get("title", "")
-                for s in sources:
-                    if s.url in url_map:
-                        s.title = url_map[s.url]
-                    elif not s.title:
-                        m = re.match(r'https?://([^/]+)', s.url)
-                        s.title = m.group(1) if m else s.url
+            if sources:
+                sources = _resolve_source_titles(sources, digest_videos)
 
         prev_date, next_date = get_youtube_adjacent_dates(conn, requested_date)
         return templates.TemplateResponse(
