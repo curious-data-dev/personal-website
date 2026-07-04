@@ -414,19 +414,8 @@ async def history(
 
 @router.get("/sources", response_class=HTMLResponse)
 async def sources_list(request: Request):
-    """List all RSS sources and their status."""
-    conn = get_db()
-    try:
-        sources = [s for s in get_all_sources(conn) if s.get("source_type") == "rss"]
-        return templates.TemplateResponse(
-            request,
-            "sources.html",
-            {
-                "sources": sources,
-            },
-        )
-    finally:
-        conn.close()
+    """Redirect to settings page where sources are now managed."""
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 @router.get("/health")
