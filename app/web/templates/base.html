@@ -443,6 +443,9 @@
                 e.preventDefault();
                 e.stopPropagation();
                 document.body.classList.remove('sidebar-collapsed');
+                document.getElementById('youtubeSubnav').classList.remove('hidden');
+                document.getElementById('youtubeChevron').textContent = '▾';
+                localStorage.setItem('youtube-subnav-expanded', 'true');
                 tempExpanded = true;
             });
 
