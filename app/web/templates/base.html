@@ -22,7 +22,7 @@
     <link rel="stylesheet" href="/static/output.css">
     {% block head_extra %}{% endblock %}
 </head>
-<body class="font-sans antialiased bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-white transition-colors">
+<body class="font-sans antialiased bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-white transition-colors{% if toc or sources %} has-right-sidebar{% endif %}">
 
     {# ── Desktop Sidebar ── #}
     <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-60 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 flex flex-col transition-all duration-200 overflow-y-auto overflow-x-hidden max-md:hidden">
@@ -151,6 +151,31 @@
 
         .sidebar-collapsed #sidebar #youtubeSubnav { display: none !important; }
         .sidebar-collapsed #themeToggle { justify-content: center; }
+
+        /* ── Right sidebar ── */
+        #rightSidebar {
+            scrollbar-width: thin;
+            scrollbar-color: #d1d5db transparent;
+        }
+        [data-theme="dark"] #rightSidebar {
+            scrollbar-color: #334155 transparent;
+        }
+
+        .toc-link-active {
+            color: #2563eb !important;
+            background: #eff6ff !important;
+        }
+        [data-theme="dark"] .toc-link-active {
+            color: #60a5fa !important;
+            background: rgba(37,99,235,0.1) !important;
+        }
+
+        /* When right sidebar is visible, reduce main content width */
+        @media (min-width: 1280px) {
+            .has-right-sidebar #mainContent {
+                margin-right: 14rem; /* 224px = w-56 */
+            }
+        }
     </style>
 
     {# ── Mobile Top Bar ── #}
@@ -204,6 +229,49 @@
             Personal Media Intelligence Hub
         </footer>
     </main>
+
+    {# ── Right Sidebar (TOC + Sources) ── #}
+    {% if toc or sources %}
+    <aside id="rightSidebar" class="hidden xl:block fixed inset-y-0 right-0 z-30 w-56 bg-white dark:bg-slate-900 border-l border-gray-200 dark:border-slate-800 overflow-y-auto">
+        <div class="px-4 pt-6 pb-4">
+
+        {# ── Table of Contents ── #}
+        {% if toc %}
+        <div class="mb-6">
+            <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-3">📑 On this page</h4>
+            <nav class="flex flex-col gap-0.5" id="tocNav">
+            {% for entry in toc %}
+                <a href="#{{ entry.anchor }}" class="toc-link block rounded-md px-2 py-1 text-sm font-medium text-gray-500 hover:text-blue-600 hover:bg-gray-50 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-slate-800 transition-colors{% if entry.level == 3 %} ml-3{% endif %}"
+                   data-toc-target="{{ entry.anchor }}">
+                    {{ entry.text | e }}
+                </a>
+            {% endfor %}
+            </nav>
+        </div>
+        {% endif %}
+
+        {# ── Sources ── #}
+        {% if sources %}
+        <div class="border-t border-gray-100 dark:border-slate-800 pt-5{% if not toc %} border-t-0 pt-0{% endif %}">
+            <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-3">📡 Sources</h4>
+            <ol class="flex flex-col gap-1.5 text-sm" id="sourcesList">
+            {% for src in sources %}
+                <li class="flex items-start gap-1.5">
+                    <span class="text-xs font-bold text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5">[{{ src.number }}]</span>
+                    <a href="{{ src.url }}" target="_blank" rel="noopener"
+                       class="text-gray-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition-colors leading-snug break-all"
+                       title="{{ src.url }}">
+                        {{ src.title or src.url }}
+                    </a>
+                </li>
+            {% endfor %}
+            </ol>
+        </div>
+        {% endif %}
+
+        </div>
+    </aside>
+    {% endif %}
 
     {# ── Sidebar link styles (scoped to sidebar/drawer) ── #}
     <style>
@@ -342,6 +410,51 @@
                 else { collapse(); localStorage.setItem(STORAGE_KEY, 'false'); }
             });
         }
+
+        // ── TOC smooth scroll + active tracking ──
+        (function() {
+            var tocLinks = document.querySelectorAll('#tocNav .toc-link');
+            if (!tocLinks.length) return;
+
+            // Smooth scroll on click
+            tocLinks.forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var targetId = this.getAttribute('data-toc-target');
+                    var target = document.getElementById(targetId);
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        history.replaceState(null, '', '#' + targetId);
+                    }
+                });
+            });
+
+            // Active tracking on scroll
+            var headings = [];
+            tocLinks.forEach(function(link) {
+                var id = link.getAttribute('data-toc-target');
+                var el = document.getElementById(id);
+                if (el) headings.push({ el: el, link: link });
+            });
+
+            function updateActive() {
+                var scrollY = window.scrollY + 80; // offset for sticky header
+                var activeLink = null;
+                for (var i = headings.length - 1; i >= 0; i--) {
+                    if (headings[i].el.offsetTop <= scrollY) {
+                        activeLink = headings[i].link;
+                        break;
+                    }
+                }
+                tocLinks.forEach(function(l) { l.classList.remove('toc-link-active'); });
+                if (activeLink) activeLink.classList.add('toc-link-active');
+            }
+
+            if (headings.length) {
+                window.addEventListener('scroll', updateActive, { passive: true });
+                updateActive();
+            }
+        })();
     })();
     </script>
 </body>
