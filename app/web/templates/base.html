@@ -22,7 +22,7 @@
     <link rel="stylesheet" href="/static/output.css">
     {% block head_extra %}{% endblock %}
 </head>
-<body class="font-sans antialiased bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-white transition-colors{% if toc or sources %} has-right-sidebar{% endif %}">
+<body class="font-sans antialiased bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-white transition-colors">
 
     {# ── Desktop Sidebar ── #}
     <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-60 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 flex flex-col transition-all duration-200 overflow-y-auto overflow-x-hidden max-md:hidden">
@@ -152,23 +152,7 @@
         .sidebar-collapsed #sidebar #youtubeSubnav { display: none !important; }
         .sidebar-collapsed #themeToggle { justify-content: center; }
 
-        /* ── Right sidebar ── */
-        #rightSidebar {
-            display: none;
-            position: fixed;
-            top: 5rem;
-            right: 1.5rem;
-            z-index: 30;
-            width: 14rem;
-            max-height: calc(100vh - 7rem);
-            overflow-y: auto;
-            scrollbar-width: thin;
-            scrollbar-color: #d1d5db transparent;
-        }
-        [data-theme="dark"] #rightSidebar {
-            scrollbar-color: #334155 transparent;
-        }
-
+        /* ── TOC collapsible groups ── */
         .toc-link-active {
             color: #2563eb !important;
             background: #eff6ff !important;
@@ -178,7 +162,6 @@
             background: rgba(37,99,235,0.1) !important;
         }
 
-        /* ── TOC collapsible groups ── */
         .toc-h3-group {
             overflow: hidden;
             max-height: 0;
@@ -196,15 +179,7 @@
             transition: transform 0.15s ease;
         }
 
-        /* When right sidebar is visible, reduce main content width */
-        @media (min-width: 1280px) {
-            #rightSidebar {
-                display: block;
-            }
-            .has-right-sidebar #mainContent {
-                margin-right: 14rem;
-            }
-        }
+
     </style>
 
     {# ── Mobile Top Bar ── #}
@@ -251,56 +226,52 @@
 
     {# ── Main Content ── #}
     <main class="md:ml-60 transition-[margin] duration-200" id="mainContent">
-        <div class="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-16">
-            {% block content %}{% endblock %}
+        <div class="flex justify-center items-start gap-8 px-4 sm:px-6 py-6 sm:py-8 pb-16">
+            <div class="flex-1 min-w-0" style="max-width: 48rem;">
+                {% block content %}{% endblock %}
+            </div>
+
+            {# ── Right Sidebar (TOC + Sources) ── #}
+            {% if toc or sources %}
+            <aside id="rightSidebar" class="hidden xl:block w-56 flex-shrink-0 sticky" style="top: 5rem; max-height: calc(100vh - 7rem); overflow-y: auto; scrollbar-width: thin; scrollbar-color: #d1d5db transparent;">
+                {% if toc %}
+                <div class="border border-gray-200 dark:border-slate-700 rounded-lg p-3 mb-2">
+                    <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1">📑 On this page</h4>
+                    <nav class="flex flex-col gap-0.5" id="tocNav">
+                    {% for entry in toc %}
+                        <a href="#{{ entry.anchor }}" class="toc-link block rounded-md px-2 py-1 text-sm font-medium text-gray-500 hover:text-blue-600 hover:bg-gray-50 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-slate-800 transition-colors{% if entry.level == 3 %} ml-3{% endif %}"
+                           data-toc-target="{{ entry.anchor }}" data-toc-level="{{ entry.level }}">
+                            {{ entry.text | e }}
+                        </a>
+                    {% endfor %}
+                    </nav>
+                </div>
+                {% endif %}
+
+                {% if sources %}
+                <div class="border border-gray-200 dark:border-slate-700 rounded-lg p-3">
+                    <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1">📡 Sources</h4>
+                    <ol class="flex flex-col gap-1.5 text-sm" id="sourcesList">
+                    {% for src in sources %}
+                        <li class="flex items-start gap-1.5">
+                            <span class="text-xs font-bold text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5">[{{ src.number }}]</span>
+                            <a href="{{ src.url }}" target="_blank" rel="noopener"
+                               class="text-gray-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition-colors leading-snug break-all"
+                               title="{{ src.url }}">
+                                {{ src.title or src.url }}
+                            </a>
+                        </li>
+                    {% endfor %}
+                    </ol>
+                </div>
+                {% endif %}
+            </aside>
+            {% endif %}
         </div>
         <footer class="text-center py-8 text-sm text-gray-400 dark:text-slate-500">
             Personal Media Intelligence Hub
         </footer>
     </main>
-
-    {# ── Right Sidebar (TOC + Sources) ── #}
-    {% if toc or sources %}
-    <aside id="rightSidebar" class="hidden xl:block fixed inset-y-0 right-0 z-30 w-56 bg-white dark:bg-slate-900 border-l border-gray-200 dark:border-slate-800 overflow-y-auto">
-        <div class="px-4 pt-6 pb-4">
-
-        {# ── Table of Contents ── #}
-        {% if toc %}
-        <div class="border border-gray-200 dark:border-slate-700 rounded-lg p-3 mb-2">
-            <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1">📑 On this page</h4>
-            <nav class="flex flex-col gap-0.5" id="tocNav">
-            {% for entry in toc %}
-                <a href="#{{ entry.anchor }}" class="toc-link block rounded-md px-2 py-1 text-sm font-medium text-gray-500 hover:text-blue-600 hover:bg-gray-50 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-slate-800 transition-colors{% if entry.level == 3 %} ml-3{% endif %}"
-                   data-toc-target="{{ entry.anchor }}" data-toc-level="{{ entry.level }}">
-                    {{ entry.text | e }}
-                </a>
-            {% endfor %}
-            </nav>
-        </div>
-        {% endif %}
-
-        {# ── Sources ── #}
-        {% if sources %}
-        <div class="border border-gray-200 dark:border-slate-700 rounded-lg p-3">
-            <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-2 px-1">📡 Sources</h4>
-            <ol class="flex flex-col gap-1.5 text-sm" id="sourcesList">
-            {% for src in sources %}
-                <li class="flex items-start gap-1.5">
-                    <span class="text-xs font-bold text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5">[{{ src.number }}]</span>
-                    <a href="{{ src.url }}" target="_blank" rel="noopener"
-                       class="text-gray-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition-colors leading-snug break-all"
-                       title="{{ src.url }}">
-                        {{ src.title or src.url }}
-                    </a>
-                </li>
-            {% endfor %}
-            </ol>
-        </div>
-        {% endif %}
-
-        </div>
-    </aside>
-    {% endif %}
 
     {# ── Sidebar link styles (scoped to sidebar/drawer) ── #}
     <style>
