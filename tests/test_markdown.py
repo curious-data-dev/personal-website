@@ -1,7 +1,15 @@
 """Unit tests for markdown rendering: _make_anchor and render_markdown."""
 
 import pytest
-from app.web.routes import _make_anchor, render_markdown
+from app.web.routes import (
+    _make_anchor,
+    render_markdown,
+    extract_toc,
+    extract_citations,
+    _resolve_source_titles,
+    TocEntry,
+    SourceEntry,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -158,3 +166,264 @@ class TestRenderMarkdownNonHeading:
         assert "<ul>" in html
         assert "<li>item 1</li>" in html
         assert "<li>item 2</li>" in html
+
+
+# ---------------------------------------------------------------------------
+# extract_toc
+# ---------------------------------------------------------------------------
+
+class TestExtractToc:
+    """TOC extraction from markdown heading lines."""
+
+    def test_empty_input(self):
+        """Empty input returns an empty list."""
+        assert extract_toc("") == []
+
+    def test_none_text_safe(self):
+        """Falsy input (None, empty) returns empty list."""
+        assert extract_toc(None) == []
+
+    def test_only_h2_headings(self):
+        """## headings produce TocEntry with level=2."""
+        entries = extract_toc("## Introduction\n## Conclusion")
+        assert len(entries) == 2
+        assert all(e.level == 2 for e in entries)
+        assert entries[0].text == "Introduction"
+        assert entries[1].text == "Conclusion"
+
+    def test_only_h3_headings(self):
+        """### headings produce TocEntry with level=3."""
+        entries = extract_toc("### Details\n### More Details")
+        assert len(entries) == 2
+        assert all(e.level == 3 for e in entries)
+        assert entries[0].text == "Details"
+
+    def test_mixed_levels(self):
+        """Mixed ## and ### headings return entries in order."""
+        entries = extract_toc("## Overview\n### Detail A\n### Detail B\n## Summary")
+        assert len(entries) == 4
+        assert [e.level for e in entries] == [2, 3, 3, 2]
+        assert [e.text for e in entries] == ["Overview", "Detail A", "Detail B", "Summary"]
+
+    def test_no_headings(self):
+        """Text with no markdown headings returns empty list."""
+        entries = extract_toc("Just a plain paragraph.\nNo headings here.")
+        assert entries == []
+
+    def test_bold_text_in_heading(self):
+        """**bold** in heading: anchor strips tokens, text preserves them."""
+        entries = extract_toc("## **Bold** heading")
+        assert len(entries) == 1
+        assert entries[0].text == "**Bold** heading"
+        assert entries[0].anchor == _make_anchor("**Bold** heading")
+        assert entries[0].anchor == "bold-heading"
+
+    def test_link_in_heading(self):
+        """[text](url) in heading: anchor strips markdown, text preserved."""
+        entries = extract_toc("## Click [here](https://example.com) now")
+        assert len(entries) == 1
+        assert entries[0].text == "Click [here](https://example.com) now"
+        assert entries[0].anchor == _make_anchor("Click [here](https://example.com) now")
+        assert entries[0].anchor == "click-here-now"
+
+    def test_mixed_inline_in_heading(self):
+        """Mixed **bold** and [link](url): anchors use _make_anchor for clean ID."""
+        entries = extract_toc("## **Start** with [a link](http://x.com) here")
+        assert len(entries) == 1
+        assert entries[0].text == "**Start** with [a link](http://x.com) here"
+        assert entries[0].anchor == _make_anchor(entries[0].text)
+        assert entries[0].anchor == "start-with-a-link-here"
+
+    def test_heading_with_trailing_whitespace(self):
+        """Heading text is stripped of leading/trailing whitespace."""
+        entries = extract_toc("##   padded heading   ")
+        assert len(entries) == 1
+        assert entries[0].text == "padded heading"
+        assert entries[0].anchor == "padded-heading"
+
+    def test_h1_not_extracted(self):
+        """Single # h1 headings are NOT extracted (only ## and ###)."""
+        entries = extract_toc("# Main Title")
+        assert entries == []
+
+    def test_h4_not_extracted(self):
+        """#### h4 headings are NOT extracted."""
+        entries = extract_toc("#### Sub sub heading")
+        assert entries == []
+
+    def test_ignores_non_heading_hashes(self):
+        """Hashes in the middle of a line (not at start) are ignored."""
+        entries = extract_toc("Not a ## heading here")
+        assert entries == []
+
+    def test_heading_followed_by_content(self):
+        """Headings followed by paragraph text are still extracted."""
+        text = "## The Topic\n\nSome paragraph content.\n\n### Subtopic\nMore text."
+        entries = extract_toc(text)
+        assert len(entries) == 2
+        assert entries[0].text == "The Topic"
+        assert entries[1].text == "Subtopic"
+
+
+# ---------------------------------------------------------------------------
+# extract_citations
+# ---------------------------------------------------------------------------
+
+class TestExtractCitations:
+    """Citation extraction from [[N]](url) links in digest text."""
+
+    def test_empty_input(self):
+        """Empty input returns an empty list."""
+        assert extract_citations("") == []
+
+    def test_none_text_safe(self):
+        """Falsy input (None) returns empty list."""
+        assert extract_citations(None) == []
+
+    def test_single_citation(self):
+        """Single [[N]](url) extracted correctly."""
+        entries = extract_citations("See [[1]](https://example.com) for details.")
+        assert len(entries) == 1
+        assert entries[0].number == 1
+        assert entries[0].url == "https://example.com"
+        assert entries[0].title == ""
+
+    def test_multiple_citations(self):
+        """Multiple citations are all extracted."""
+        text = "[[1]](https://a.com) and [[2]](https://b.com) and [[3]](https://c.com)"
+        entries = extract_citations(text)
+        assert len(entries) == 3
+        assert [e.number for e in entries] == [1, 2, 3]
+        assert [e.url for e in entries] == ["https://a.com", "https://b.com", "https://c.com"]
+
+    def test_deduplication(self):
+        """Same citation number twice returns one entry."""
+        text = "First [[1]](https://a.com) and again [[1]](https://a.com)"
+        entries = extract_citations(text)
+        assert len(entries) == 1
+        assert entries[0].number == 1
+
+    def test_sort_order(self):
+        """Unsorted input is returned sorted by number."""
+        text = "[[3]](https://c.com) [[1]](https://a.com) [[2]](https://b.com)"
+        entries = extract_citations(text)
+        assert [e.number for e in entries] == [1, 2, 3]
+
+    def test_no_citations(self):
+        """Text with no [[N]](url) patterns returns empty list."""
+        entries = extract_citations("Just plain text [link](url) with regular links.")
+        assert entries == []
+
+    def test_bracket_links_not_matched(self):
+        """Regular [text](url) links are not treated as citations."""
+        entries = extract_citations("See [Wikipedia](https://en.wikipedia.org) for more.")
+        assert entries == []
+
+    def test_citation_with_complex_url(self):
+        """Citations with URLs containing query strings and fragments."""
+        text = "Source [[1]](https://example.com/path?q=1&b=2#frag)"
+        entries = extract_citations(text)
+        assert len(entries) == 1
+        assert entries[0].url == "https://example.com/path?q=1&b=2#frag"
+
+    def test_dedup_keeps_first_url(self):
+        """When same number appears with different URLs, first encountered is kept."""
+        text = "[[1]](https://first.com) [[1]](https://second.com)"
+        entries = extract_citations(text)
+        assert len(entries) == 1
+        assert entries[0].url == "https://first.com"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_source_titles
+# ---------------------------------------------------------------------------
+
+class TestResolveSourceTitles:
+    """Resolve citation titles from digest articles or fall back to domain."""
+
+    def _make_citation(self, number=1, url="https://example.com/article"):
+        """Helper to create a SourceEntry with a given number and URL."""
+        return SourceEntry(number=number, url=url, title="")
+
+    def test_url_in_map_with_title(self):
+        """URL in url_map with a title uses that title."""
+        citations = [self._make_citation(url="https://example.com/a")]
+        digest_articles = [{"url": "https://example.com/a", "title": "Article A"}]
+        resolved = _resolve_source_titles(citations, digest_articles)
+        assert resolved[0].title == "Article A"
+
+    def test_url_not_in_map_falls_back_to_domain(self):
+        """URL not in url_map: use domain name as title."""
+        citations = [self._make_citation(url="https://news.ycombinator.com/item?id=1")]
+        digest_articles = []
+        resolved = _resolve_source_titles(citations, digest_articles)
+        assert resolved[0].title == "news.ycombinator.com"
+
+    def test_bad_url_uses_raw_url(self):
+        """Non-matching URL pattern uses the raw URL as title."""
+        citations = [self._make_citation(url="not-a-valid-url")]
+        digest_articles = []
+        resolved = _resolve_source_titles(citations, digest_articles)
+        assert resolved[0].title == "not-a-valid-url"
+
+    def test_url_in_map_with_empty_title_preserves_existing(self):
+        """When url_map has the URL but title is empty, preserve existing (don't fall to domain)."""
+        citations = [self._make_citation(url="https://example.com/b")]
+        digest_articles = [{"url": "https://example.com/b", "title": ""}]
+        resolved = _resolve_source_titles(citations, digest_articles)
+        # URL was found in map (even though title was empty), so it should
+        # NOT fall through to domain extraction; title stays empty.
+        assert resolved[0].title == ""
+
+    def test_url_in_map_with_empty_title_uses_existing_nonempty(self):
+        """If s.title already has a value and url_map has empty, keep existing."""
+        citations = [SourceEntry(number=1, url="https://example.com/c", title="Already Set")]
+        digest_articles = [{"url": "https://example.com/c", "title": ""}]
+        resolved = _resolve_source_titles(citations, digest_articles)
+        assert resolved[0].title == "Already Set"
+
+    def test_multiple_keys_in_digest_articles(self):
+        """url_map collects from url, article_url, and source_url keys."""
+        citations = [
+            self._make_citation(url="https://a.com/1"),
+            self._make_citation(url="https://b.com/2"),
+            self._make_citation(url="https://c.com/3"),
+        ]
+        digest_articles = [
+            {"url": "https://a.com/1", "title": "From URL"},
+            {"article_url": "https://b.com/2", "title": "From Article URL"},
+            {"source_url": "https://c.com/3", "title": "From Source URL"},
+        ]
+        resolved = _resolve_source_titles(citations, digest_articles)
+        assert resolved[0].title == "From URL"
+        assert resolved[1].title == "From Article URL"
+        assert resolved[2].title == "From Source URL"
+
+    def test_mixed_found_and_not_found(self):
+        """Some citations found in articles, others get domain fallback."""
+        citations = [
+            self._make_citation(1, "https://known.com/x"),
+            self._make_citation(2, "https://unknown.net/y"),
+        ]
+        digest_articles = [{"url": "https://known.com/x", "title": "Known Article"}]
+        resolved = _resolve_source_titles(citations, digest_articles)
+        assert resolved[0].title == "Known Article"
+        assert resolved[1].title == "unknown.net"
+
+    def test_article_url_key_used(self):
+        """article_url key in digest_article is checked for URL match."""
+        citations = [self._make_citation(url="https://myblog.com/post/1")]
+        digest_articles = [
+            {"article_url": "https://myblog.com/post/1", "title": "My Blog Post"}
+        ]
+        resolved = _resolve_source_titles(citations, digest_articles)
+        assert resolved[0].title == "My Blog Post"
+
+    def test_source_url_key_used(self):
+        """source_url key in digest_article is checked for URL match."""
+        citations = [self._make_citation(url="https://source.org/doc")]
+        digest_articles = [
+            {"source_url": "https://source.org/doc", "title": "Source Doc"}
+        ]
+        resolved = _resolve_source_titles(citations, digest_articles)
+        assert resolved[0].title == "Source Doc"

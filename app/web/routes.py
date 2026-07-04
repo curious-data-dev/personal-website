@@ -222,8 +222,8 @@ def _resolve_source_titles(
                 url_map[u] = da.get('title', '') or ''
 
     for s in citations:
-        if s.url in url_map and url_map[s.url]:
-            s.title = url_map[s.url]
+        if s.url in url_map:
+            s.title = url_map[s.url] or s.title
         elif not s.title:
             m = re.match(r'https?://([^/]+)', s.url)
             s.title = m.group(1) if m else s.url
