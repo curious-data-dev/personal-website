@@ -172,15 +172,6 @@ section:has(#btn-scrape) { display:none; }
     {% endif %}
 </section>
 
-{# ── RSS Sources ── #}
-<section class="mb-8">
-    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">📡 RSS Sources</h2>
-    <p class="text-sm text-gray-500 dark:text-slate-400">
-        {{ rss_sources|length }} source{{ 's' if rss_sources|length != 1 else '' }} configured.
-        <a href="/sources" class="text-blue-600 dark:text-blue-400 hover:underline ml-1">Manage all RSS sources →</a>
-    </p>
-</section>
-
 <script>
 // ── Collapsible sections ──
 function toggleCollapsible(id) {
