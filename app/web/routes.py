@@ -87,13 +87,16 @@ def render_markdown(text: str) -> str:
 
         # Headings — may have trailing bullet lines in same paragraph
         if first.startswith('## '):
-            parts.append(f'<h2>{_render_inline(first[3:])}</h2>')
+            raw = first[3:]
+            parts.append(f'<h2 id="{_make_anchor(raw)}">{_render_inline(raw)}</h2>')
             _append_trailing_content(parts, lines)
         elif first.startswith('# '):
-            parts.append(f'<h2>{_render_inline(first[2:])}</h2>')
+            raw = first[2:]
+            parts.append(f'<h2 id="{_make_anchor(raw)}">{_render_inline(raw)}</h2>')
             _append_trailing_content(parts, lines)
         elif first.startswith('### '):
-            parts.append(f'<h3>{_render_inline(first[4:])}</h3>')
+            raw = first[4:]
+            parts.append(f'<h3 id="{_make_anchor(raw)}">{_render_inline(raw)}</h3>')
             _append_trailing_content(parts, lines)
 
         # Bullet list — every line starts with - or *
@@ -135,7 +138,21 @@ def _clean_bullet(line: str) -> str:
         s = s[1:]
     return s.strip()
 
+def _make_anchor(text: str) -> str:
+    """Generate a URL-safe anchor ID from heading text.
+
+    Strips inline markdown tokens (*, **) and reduces to
+    lowercase alphanumeric segments joined by hyphens.
+    """
+    # Strip inline markdown tokens before building anchor
+    clean = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    clean = re.sub(r'__(.+?)__', r'\1', clean)
+    clean = re.sub(r'\*(.+?)\*', r'\1', clean)
+    clean = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', clean)
+    return re.sub(r'[^a-z0-9]+', '-', clean.lower()).strip('-')
+
 templates.env.filters["markdown"] = render_markdown
+templates.env.filters["make_anchor"] = _make_anchor
 
 # ---------------------------------------------------------------------------
 # Simple session-based auth (for manual triggers)
