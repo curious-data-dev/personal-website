@@ -206,6 +206,30 @@ def extract_citations(text: str) -> list[SourceEntry]:
     return unique
 
 
+def _resolve_source_titles(
+    citations: list[SourceEntry],
+    digest_articles: list[dict],
+) -> list[SourceEntry]:
+    """Resolve citation titles from the digest_articles list by URL match.
+
+    Falls back to extracting the domain name from the URL if no match found.
+    """
+    url_map: dict[str, str] = {}
+    for da in digest_articles:
+        for k in ('url', 'article_url', 'source_url'):
+            u = da.get(k)
+            if u and isinstance(u, str):
+                url_map[u] = da.get('title', '') or ''
+
+    for s in citations:
+        if s.url in url_map and url_map[s.url]:
+            s.title = url_map[s.url]
+        elif not s.title:
+            m = re.match(r'https?://([^/]+)', s.url)
+            s.title = m.group(1) if m else s.url
+    return citations
+
+
 # ---------------------------------------------------------------------------
 # Simple session-based auth (for manual triggers)
 # ---------------------------------------------------------------------------
@@ -247,6 +271,14 @@ async def home(request: Request):
         if digest:
             digest_articles = get_digest_articles(conn, digest["id"])
 
+        # Extract TOC and sources from digest text
+        toc: list[TocEntry] = []
+        sources: list[SourceEntry] = []
+        if digest and digest.get("summary_text"):
+            toc = extract_toc(digest["summary_text"])
+            sources = extract_citations(digest["summary_text"])
+            sources = _resolve_source_titles(sources, digest_articles)
+
         recent_articles = get_recent_articles(conn, limit=10)
         last_scrape = get_last_scrape(conn)
         prev_date, next_date = get_adjacent_dates(conn, today)
@@ -257,6 +289,8 @@ async def home(request: Request):
             {
                 "digest": digest,
                 "digest_articles": digest_articles,
+                "toc": toc,
+                "sources": sources,
                 "recent_articles": recent_articles,
                 "last_scrape": last_scrape,
                 "prev_date": prev_date,
@@ -280,6 +314,15 @@ async def digest_detail(request: Request, date_str: str):
             raise HTTPException(status_code=404, detail="Digest not found for this date")
 
         digest_articles = get_digest_articles(conn, digest["id"])
+
+        # Extract TOC and sources from digest text
+        toc: list[TocEntry] = []
+        sources: list[SourceEntry] = []
+        if digest and digest.get("summary_text"):
+            toc = extract_toc(digest["summary_text"])
+            sources = extract_citations(digest["summary_text"])
+            sources = _resolve_source_titles(sources, digest_articles)
+
         prev_date, next_date = get_adjacent_dates(conn, date_str)
 
         return templates.TemplateResponse(
@@ -288,6 +331,8 @@ async def digest_detail(request: Request, date_str: str):
             {
                 "digest": digest,
                 "digest_articles": digest_articles,
+                "toc": toc,
+                "sources": sources,
                 "recent_articles": [],
                 "last_scrape": None,
                 "prev_date": prev_date,
@@ -310,11 +355,24 @@ async def article_detail(request: Request, article_id: int):
         if not article:
             raise HTTPException(status_code=404, detail="Article not found")
 
+        # Extract TOC and sources from article text
+        toc: list[TocEntry] = []
+        sources: list[SourceEntry] = []
+        text = article.get("summary_text") or article.get("raw_text") or ""
+        if text:
+            toc = extract_toc(text)
+            sources = extract_citations(text)
+            if sources and article.get("title"):
+                for s in sources:
+                    s.title = article.get("title", "")
+
         return templates.TemplateResponse(
             request,
             "article.html",
             {
                 "article": article,
+                "toc": toc,
+                "sources": sources,
             },
         )
     finally:
@@ -422,6 +480,25 @@ async def youtube_daily(request: Request, channel: int | None = None, date: str 
             else:
                 recent_videos = get_recent_youtube_articles(conn, limit=20, days=7)
 
+        # Extract TOC and sources from YouTube digest text
+        toc: list[TocEntry] = []
+        sources: list[SourceEntry] = []
+        if digest and digest.get("summary_text"):
+            toc = extract_toc(digest["summary_text"])
+            sources = extract_citations(digest["summary_text"])
+            if sources and digest_videos:
+                url_map: dict[str, str] = {}
+                for v in digest_videos:
+                    u = v.get("url")
+                    if u:
+                        url_map[u] = v.get("title", "")
+                for s in sources:
+                    if s.url in url_map:
+                        s.title = url_map[s.url]
+                    elif not s.title:
+                        m = re.match(r'https?://([^/]+)', s.url)
+                        s.title = m.group(1) if m else s.url
+
         prev_date, next_date = get_youtube_adjacent_dates(conn, requested_date)
         return templates.TemplateResponse(
             request,
@@ -440,6 +517,8 @@ async def youtube_daily(request: Request, channel: int | None = None, date: str 
                 "display_date_pretty": _format_date_pretty(display_date),
                 "prev_date": prev_date,
                 "next_date": next_date,
+                "toc": toc,
+                "sources": sources,
                 "scrape_time": f"{settings.scrape_cron_hour:02d}:{settings.scrape_cron_minute:02d}",
             },
         )
