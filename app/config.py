@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     data_dir: str = "./data"
 
     # Scheduler
-    scrape_cron_hour: int = 20  # 8 PM IST
+    scrape_cron_hour: int = 8   # 8 AM IST
     scrape_cron_minute: int = 0
     lookback_hours: int = 48  # 48h window ensures RSS feed delays don't cause missed articles
 
