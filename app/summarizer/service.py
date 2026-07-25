@@ -160,6 +160,7 @@ def run_summarization(
                 JOIN sources s ON s.id = a.source_id
                 WHERE s.source_type = 'rss'
                   AND a.status = 'summarized'
+                  AND a.excluded_at IS NULL
                   AND a.published_date_ist IN (?, ?, ?)
                   AND EXISTS (
                     SELECT 1 FROM daily_digests dg WHERE dg.date = a.published_date_ist
