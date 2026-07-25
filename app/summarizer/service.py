@@ -144,6 +144,36 @@ def run_summarization(
             if row["d"]:
                 affected_dates["rss"].add(row["d"])
 
+        # ── Stale digest detection: dates within 3-day IST window that have
+        # a digest but some summarized articles are not linked to it ──
+        if "rss" in selected_types:
+            ist = timezone(timedelta(hours=5, minutes=30))
+            today_ist = datetime.now(ist).date()
+            window_dates = [
+                today_ist.isoformat(),
+                (today_ist - timedelta(days=1)).isoformat(),
+                (today_ist - timedelta(days=2)).isoformat(),
+            ]
+            stale_rows = conn.execute("""
+                SELECT DISTINCT a.published_date_ist AS d
+                FROM articles a
+                JOIN sources s ON s.id = a.source_id
+                WHERE s.source_type = 'rss'
+                  AND a.status = 'summarized'
+                  AND a.published_date_ist IN (?, ?, ?)
+                  AND EXISTS (
+                    SELECT 1 FROM daily_digests dg WHERE dg.date = a.published_date_ist
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM digest_articles da
+                    JOIN daily_digests dg ON dg.id = da.digest_id
+                    WHERE da.article_id = a.id AND dg.date = a.published_date_ist
+                  )
+            """, window_dates).fetchall()
+            for row in stale_rows:
+                if row["d"]:
+                    affected_dates["rss"].add(row["d"])
+
         if "rss" in selected_types and affected_dates["rss"]:
             logger.info(f"Regenerating RSS digests for {len(affected_dates['rss'])} date(s): {sorted(affected_dates['rss'])}")
             if on_progress:
