@@ -82,12 +82,9 @@ def daily_scrape_and_summarize() -> None:
         total_new += transcript_stats.get("completed", 0)
 
         # Phase 4: Summarization
-        if total_new > 0:
-            logger.info(f"▶ Phase 4/4: Summarizing new items + generating digests...")
-            summary_stats = run_summarization()
-            logger.info(f"Summarization & digests done: {summary_stats}")
-        else:
-            logger.info("No new content — skipping summarization")
+        logger.info(f"▶ Phase 4/4: Summarizing new items + checking for stale digests...")
+        summary_stats = run_summarization()
+        logger.info(f"Summarization & digests done: {summary_stats}")
 
     except Exception as e:
         logger.exception("Daily job failed!")
