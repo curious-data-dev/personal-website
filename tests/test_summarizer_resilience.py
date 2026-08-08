@@ -106,12 +106,12 @@ def test_digest_uses_condensed_summaries_and_caches_them(isolated_db, monkeypatc
     # Condensation call happened before the extract call.
     assert any("CONDENSED SUMMARY" in p for p in prompts)
     # The per-article extract prompt must embed the condensed text, not the raw summary.
-    extract_prompt = [p for p in prompts if "STORY BULLETS" in p]
+    extract_prompt = [p for p in prompts if "STORY BLOCKS" in p or "STORY BULLETS" in p]
     assert extract_prompt and "Condensed: key facts preserved." in extract_prompt[0]
     assert "d" * 2000 not in extract_prompt[0]
     # The merge pass must receive the extracted story bullets.
     merge_prompt = [p for p in prompts if "DAILY DIGEST" in p]
-    assert merge_prompt and "Story" in merge_prompt[0]
+    assert merge_prompt and "DIGEST OUTPUT" in merge_prompt[0]
 
     # Condensed summary cached on the article row for reuse.
     conn = isolated_db.get_db()

@@ -100,10 +100,12 @@ digests keep their stored text.
   - Do NOT write the Sources section (appended by code)
 - `digest_story_extract.md` — per-article extraction prompt (new Aug 8
   architecture). One small LLM call per article extracts ONLY that article's
-  stories as 4-part-arc bullets. Guarantees full coverage (flash-lite was
-  dropping ~8/40 stories when asked to enumerate everything in one pass).
-- `digest_merge.md` — merge prompt. Takes the pre-extracted bullets and ONLY
-  groups them into sections + writes Highlights/Key Takeaway. Keeps bullets
+  stories as **headline + flowing story paragraph** blocks (natural prose
+  covering what happened / why / relevance / what's next, no labels).
+  Guarantees full coverage (flash-lite was dropping ~8/40 stories when asked
+  to enumerate everything in one pass).
+- `digest_merge.md` — merge prompt. Takes the pre-extracted story blocks and
+  ONLY groups them into sections + writes Highlights/Key Takeaway. Keeps blocks
   verbatim (model must NOT reword/drop them).
 - `youtube_digest.md` — YouTube digest. Same two-phase extract→merge flow
   (uses digest_story_extract + digest_merge), topics attributed to creators
