@@ -19,6 +19,7 @@ from app.database import (
     get_raw_articles_for_source,
     update_article_status,
     update_article_summary,
+    update_article_condensed_summary,
     get_articles_for_date,
     get_digest_for_date,
     insert_daily_digest,
@@ -28,7 +29,12 @@ from app.database import (
     link_videos_to_youtube_digest,
 )
 from app.summarizer.chunker import chunk_article
-from app.summarizer.llm import call_llm, get_last_provider
+from app.summarizer.llm import (
+    call_llm,
+    get_last_provider,
+    is_rate_limit_error,
+    estimate_tokens,
+)
 from app.prompts.manager import prompt_manager
 
 logger = logging.getLogger(__name__)
@@ -59,7 +65,7 @@ def run_summarization(
     """
     conn = get_db()
     selected_types = source_types or {"rss", "youtube"}
-    stats = {"articles_processed": 0, "articles_failed": 0, "digest_generated": False}
+    stats = {"articles_processed": 0, "articles_failed": 0, "articles_rate_limited": 0, "digest_generated": False, "digest_failed": 0}
     affected_dates = {
         "rss": set(regenerate_dates or []),
         "youtube": set(regenerate_dates or []),
@@ -123,9 +129,18 @@ def run_summarization(
                 logger.info(f"Summarized article #{article_id} ({chunk_count} chunks)")
 
             except Exception as e:
-                logger.error(f"Failed to summarize article #{article_id}: {e}")
-                update_article_status(conn, article_id, "failed", str(e))
-                stats["articles_failed"] += 1
+                if is_rate_limit_error(e):
+                    # Transient per-minute token limit — requeue so the next run retries,
+                    # instead of permanently marking the article failed.
+                    update_article_status(conn, article_id, "raw", f"rate limited: {e}")
+                    stats["articles_rate_limited"] += 1
+                    logger.warning(
+                        f"Article #{article_id} hit rate limit, requeued for next run: {e}"
+                    )
+                else:
+                    logger.error(f"Failed to summarize article #{article_id}: {e}")
+                    update_article_status(conn, article_id, "failed", str(e))
+                    stats["articles_failed"] += 1
 
             conn.commit()
 
@@ -144,24 +159,25 @@ def run_summarization(
             if row["d"]:
                 affected_dates["rss"].add(row["d"])
 
-        # ── Stale digest detection: dates within 3-day IST window that have
-        # a digest but some summarized articles are not linked to it ──
+        # ── Stale digest detection: dates within the stale-digest window that
+        # have a digest but some summarized articles are not linked to it ──
         if "rss" in selected_types:
             ist = timezone(timedelta(hours=5, minutes=30))
             today_ist = datetime.now(ist).date()
+            window_days = settings.stale_digest_window_days
             window_dates = [
-                today_ist.isoformat(),
-                (today_ist - timedelta(days=1)).isoformat(),
-                (today_ist - timedelta(days=2)).isoformat(),
+                (today_ist - timedelta(days=i)).isoformat()
+                for i in range(window_days)
             ]
-            stale_rows = conn.execute("""
+            placeholders = ",".join("?" * len(window_dates))
+            stale_rows = conn.execute(f"""
                 SELECT DISTINCT a.published_date_ist AS d
                 FROM articles a
                 JOIN sources s ON s.id = a.source_id
                 WHERE s.source_type = 'rss'
                   AND a.status = 'summarized'
                   AND a.excluded_at IS NULL
-                  AND a.published_date_ist IN (?, ?, ?)
+                  AND a.published_date_ist IN ({placeholders})
                   AND EXISTS (
                     SELECT 1 FROM daily_digests dg WHERE dg.date = a.published_date_ist
                   )
@@ -188,7 +204,8 @@ def run_summarization(
                     if on_progress:
                         on_progress(f"✓ RSS digest for {date_str}")
                 except Exception as e:
-                    logger.error(f"Failed to generate RSS digest for {date_str}: {e}")
+                    logger.exception(f"Failed to generate RSS digest for {date_str}: {e}")
+                    stats["digest_failed"] += 1
 
         # ── YouTube digests: detect orphan dates with YT videos but no digest ──
         yt_affected_dates = affected_dates["youtube"]
@@ -219,7 +236,8 @@ def run_summarization(
                     if on_progress:
                         on_progress(f"✓ YouTube digest for {date_str}")
                 except Exception as e:
-                    logger.error(f"Failed to generate YouTube digest for {date_str}: {e}")
+                    logger.exception(f"Failed to generate YouTube digest for {date_str}: {e}")
+                    stats["digest_failed"] += 1
 
         return stats
 
@@ -273,11 +291,79 @@ def _summarize_article(raw_text: str, prompt_name: str = "single_summary", reduc
     if not sub_summaries:
         return "", 0, ""
 
-    # REDUCE phase: synthesize sub-summaries into one cohesive summary
-    combined = "\n\n---\n\n".join(sub_summaries)
-    final_summary = call_llm(prompt_manager.get_prompt(reduce_prompt_name).format(sub_summaries=combined))
+    # REDUCE phase: synthesize sub-summaries into one cohesive summary.
+    # Group the sub-summaries so no single reduce request exceeds the
+    # per-minute token budget (a request that can't fit the window can never
+    # succeed, no matter how many times we retry). If the merged output of the
+    # per-group results would itself exceed the budget, reduce again
+    # hierarchically until a single summary remains.
+    reduce_template = prompt_manager.get_prompt(reduce_prompt_name)
+    budget = settings.llm_input_tokens_per_min
+    prompt_overhead = estimate_tokens(reduce_template)
 
-    return final_summary, len(chunks), get_last_provider()
+    def _fit_groups(texts: list[str]) -> list[list[str]]:
+        """Pack texts into groups where each group fits the token budget.
+
+        The template is included once per request, so overhead is counted once
+        per group (not once per text).
+        """
+        groups: list[list[str]] = []
+        current: list[str] = []
+        current_tokens = prompt_overhead
+        for s in texts:
+            s_tokens = estimate_tokens(s)
+            if current and current_tokens + s_tokens > budget:
+                groups.append(current)
+                current = [s]
+                current_tokens = prompt_overhead + s_tokens
+            else:
+                current.append(s)
+                current_tokens += s_tokens
+        if current:
+            groups.append(current)
+        return groups
+
+    results = sub_summaries
+    max_passes = len(sub_summaries) + 1  # hard cap against pathological non-convergence
+    for _ in range(max_passes):
+        if len(results) <= 1:
+            break
+        groups = _fit_groups(results)
+        results = [
+            call_llm(reduce_template.format(sub_summaries="\n\n---\n\n".join(group)))
+            for group in groups
+        ]
+
+    if not results:
+        return "", 0, ""
+    return results[0], len(chunks), get_last_provider()
+
+
+def _get_condensed_summary(conn, article: dict) -> str:
+    """Return a digest-ready condensed summary, caching it on the article row.
+
+    The full article summary stays untouched (per-article detail preserved);
+    this shorter form keeps the aggregated daily-digest prompt well under the
+    per-minute token budget even for days with many articles.
+    """
+    cached = article.get("condensed_summary")
+    if cached:
+        return cached
+
+    full = article.get("summary_text") or ""
+    if len(full) <= settings.condense_target_chars:
+        condensed = full
+    else:
+        try:
+            condensed = call_llm(
+                prompt_manager.get_prompt("condense_summary").format(text=full),
+                model=settings.gemini_condense_model,
+            )
+        except Exception as e:
+            logger.warning(f"Condensation failed for article #{article.get('id')}: {e}")
+            condensed = full[: settings.condense_target_chars]
+    update_article_condensed_summary(conn, article["id"], condensed)
+    return condensed
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +396,7 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
     article_summaries = "\n\n---\n\n".join(
         f"[REF {i}] SOURCE: {a.get('source_name', 'Unknown')} | {a.get('source_category', '')}\n"
         f"TITLE: {a['title']}\n"
-        f"SUMMARY: {a['summary_text']}"
+        f"SUMMARY: {_get_condensed_summary(conn, a)}"
         for i, a in enumerate(articles, start=1)
     )
 
@@ -405,7 +491,7 @@ def _generate_youtube_daily_digest(
     video_summaries = "\n\n---\n\n".join(
         f"[REF {i}] CHANNEL: {v.get('source_name', 'Unknown')}\n"
         f"TITLE: {v['title']}\n"
-        f"SUMMARY: {v['summary_text']}"
+        f"SUMMARY: {_get_condensed_summary(conn, v)}"
         for i, v in enumerate(videos, start=1)
     )
 

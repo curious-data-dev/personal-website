@@ -85,6 +85,9 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     if "duration_seconds" not in cols:
         conn.execute("ALTER TABLE articles ADD COLUMN duration_seconds INTEGER")
         conn.commit()
+    if "condensed_summary" not in cols:
+        conn.execute("ALTER TABLE articles ADD COLUMN condensed_summary TEXT")
+        conn.commit()
 
 
 SCHEMA = """
@@ -113,6 +116,7 @@ CREATE TABLE IF NOT EXISTS articles (
     status          TEXT    DEFAULT 'raw',
     chunk_count     INTEGER DEFAULT 0,
     llm_provider    TEXT,
+    condensed_summary TEXT,
     error_message   TEXT
 );
 
@@ -385,9 +389,20 @@ def update_article_summary(
 ) -> None:
     conn.execute(
         """UPDATE articles
-           SET summary_text = ?, chunk_count = ?, llm_provider = ?, status = 'summarized'
+           SET summary_text = ?, chunk_count = ?, llm_provider = ?,
+               condensed_summary = NULL, status = 'summarized'
            WHERE id = ?""",
         (summary_text, chunk_count, llm_provider, article_id),
+    )
+
+
+def update_article_condensed_summary(
+    conn: sqlite3.Connection, article_id: int, condensed_text: str
+) -> None:
+    """Cache the condensed (digest-ready) version of an article summary."""
+    conn.execute(
+        "UPDATE articles SET condensed_summary = ? WHERE id = ?",
+        (condensed_text, article_id),
     )
 
 

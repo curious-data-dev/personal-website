@@ -10,6 +10,18 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     llm_provider: str = "gemini"  # "gemini", "groq", or "deepseek"
     gemini_model: str = "gemma-4-31b-it"  # Model name for Gemini (e.g. gemma-4-31b-it, gemini-2.5-flash)
+    # Model for the condensation step only. gemma-4-31b-it is a thinking model
+    # that burns its output budget on internal reasoning, so short-output tasks
+    # like condensation frequently return empty responses or 504s. Use a fast
+    # non-thinking model here; the heavier thinking model stays for article
+    # summaries and the daily digest.
+    gemini_condense_model: str = "gemini-3.1-flash-lite"
+
+    # gemma-4-31b-it is a thinking model: it spends output tokens on internal
+    # reasoning BEFORE producing the answer. A 4096-token output budget gets
+    # fully consumed by reasoning (empty responses ~2/3 of the time), so we
+    # raise the default to leave room for reasoning + the final answer.
+    llm_max_output_tokens: int = 8192
 
     # Email (optional)
     gmail_user: str = ""
@@ -23,7 +35,9 @@ class Settings(BaseSettings):
     # Scheduler
     scrape_cron_hour: int = 8   # 8 AM IST
     scrape_cron_minute: int = 0
-    lookback_hours: int = 48  # 48h window ensures RSS feed delays don't cause missed articles
+    # 96h (4-day) window: The Hindu Evening Wrap and other feeds expose items
+    # 1-2 days late, so a 48h window let those fall out before being fetched.
+    lookback_hours: int = 96
 
     # Durable worker and YouTube transcript providers
     worker_poll_seconds: int = 5
@@ -42,6 +56,15 @@ class Settings(BaseSettings):
     min_summary_chars: int = 600
     chunk_size: int = 4000
     chunk_overlap: int = 400
+    # Per-minute input-token budget for the LLM API (free tier = 16k TPM)
+    llm_input_tokens_per_min: int = 16000
+    # Rolling window (seconds) for the per-minute token budget
+    rate_limit_window_seconds: int = 60
+    # Target length (chars) for condensed summaries used in daily digests
+    condense_target_chars: int = 600
+    # How far back (days) to scan for digests whose articles were linked late
+    # (feed lag) and thus need regeneration
+    stale_digest_window_days: int = 7
 
     # Web UI auth
     web_username: str = "admin"

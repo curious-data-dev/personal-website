@@ -10,6 +10,7 @@ Each provider gets up to 5 retries with exponential backoff.
 """
 
 import logging
+import threading
 import time
 from typing import Optional
 
@@ -28,8 +29,91 @@ BASE_DELAY = 2  # seconds → exponential: 2, 4, 8, 16, 32
 _ALL_PROVIDERS = ["deepseek", "groq", "gemini"]
 
 # Usage tracking (in-memory, resets on restart)
-_usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "errors": 0}
+_usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "errors": 0, "waited_seconds": 0.0}
 _last_provider: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Token budget rate limiting
+# ---------------------------------------------------------------------------
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token estimate (~4 chars per token), matching existing usage tracking."""
+    if not text:
+        return 1
+    return max(1, len(text) // 4)
+
+
+class TokenRateLimiter:
+    """Throttles LLM calls to stay within a per-minute input-token budget.
+
+    Tracks estimated input tokens sent within a rolling window and blocks
+    callers (sleeps) before a request that would exceed the budget. All
+    providers share one limiter, so parallel chunk-map calls are serialized
+    against the real per-minute quota instead of tripping the API's 429s.
+    """
+
+    def __init__(self, tokens_per_minute: int, window_seconds: float = 60.0):
+        self.tokens_per_minute = max(1, int(tokens_per_minute))
+        self.window_seconds = float(window_seconds)
+        self._lock = threading.Lock()
+        self._entries: list[tuple[float, int]] = []  # (wall_time, tokens)
+
+    def _prune(self, now: float) -> None:
+        cutoff = now - self.window_seconds
+        self._entries = [(t, n) for (t, n) in self._entries if t > cutoff]
+
+    def seconds_until_window_reset(self) -> float:
+        """Seconds until the current rolling window has capacity again."""
+        with self._lock:
+            now = time.time()
+            self._prune(now)
+            if not self._entries:
+                return 0.0
+            oldest = min(t for t, _ in self._entries)
+            return max(0.0, oldest + self.window_seconds - now)
+
+    def acquire(self, token_count: int, on_wait=None) -> float:
+        """Block until `token_count` tokens fit within this minute's budget.
+
+        A single request that is larger than the entire per-minute budget can
+        never fit in the window — waiting for capacity would hang forever. In
+        that case we wait for the window to drain, then let it through anyway
+        (the API's own 429 + our retry layer handle the overflow).
+
+        Returns the total time (seconds) spent waiting.
+        """
+        waited = 0.0
+        token_count = max(1, int(token_count))
+        oversized = token_count > self.tokens_per_minute
+        while True:
+            with self._lock:
+                now = time.time()
+                self._prune(now)
+                used = sum(n for _, n in self._entries)
+                if oversized:
+                    if not self._entries:
+                        self._entries.append((now, token_count))
+                        return waited
+                    oldest = min(t for t, _ in self._entries)
+                    delay = oldest + self.window_seconds - now
+                elif used + token_count <= self.tokens_per_minute:
+                    self._entries.append((now, token_count))
+                    return waited
+                else:
+                    oldest = min(t for t, _ in self._entries)
+                    delay = oldest + self.window_seconds - now
+            if on_wait:
+                on_wait(delay)
+            time.sleep(max(0.0, delay))
+            waited += max(0.0, delay)
+
+
+_rate_limiter = TokenRateLimiter(
+    settings.llm_input_tokens_per_min,
+    settings.rate_limit_window_seconds,
+)
 
 
 def get_usage_stats() -> dict:
@@ -41,17 +125,34 @@ def get_last_provider() -> str:
     """Return the last successfully used provider."""
     return _last_provider
 
+
+def is_rate_limit_error(exc: Exception) -> bool:
+    """True if the exception looks like a per-minute token / rate-limit error."""
+    error_str = str(exc).lower()
+    markers = (
+        "429",
+        "resource_exhausted",
+        "rate limit",
+        "rate_limit",
+        "tokens per minute",
+        "token budget",
+        "too many requests",
+    )
+    return any(m in error_str for m in markers)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
-def call_llm(prompt: str, provider: Optional[str] = None, max_tokens: int = 4096, model: Optional[str] = None, on_progress=None) -> str:
+def call_llm(prompt: str, provider: Optional[str] = None, max_tokens: Optional[int] = None, model: Optional[str] = None, on_progress=None) -> str:
     """Call LLM with retries, falling back through Gemini → Groq → DeepSeek.
 
     Args:
         prompt: The prompt to send.
         provider: Override the default (\"gemini\", \"groq\", or \"deepseek\").
+        max_tokens: Max output tokens. Defaults to settings.llm_max_output_tokens.
 
     Returns:
         The LLM's response text.
@@ -59,6 +160,8 @@ def call_llm(prompt: str, provider: Optional[str] = None, max_tokens: int = 4096
     Raises:
         RuntimeError: After all providers are exhausted.
     """
+    if max_tokens is None:
+        max_tokens = settings.llm_max_output_tokens
     # Build the fallback chain: primary first, then the rest
     primary = provider or settings.llm_provider
     chain = [primary] + [p for p in _ALL_PROVIDERS if p != primary]
@@ -90,28 +193,73 @@ def call_llm(prompt: str, provider: Optional[str] = None, max_tokens: int = 4096
     )
 
 
-def _call_with_retry(provider_name: str, prompt: str, max_tokens: int = 4096, model: Optional[str] = None, on_progress=None) -> str:
-    """Call a single provider with up to MAX_RETRIES attempts."""
+def _call_with_retry(provider_name: str, prompt: str, max_tokens: Optional[int] = None, model: Optional[str] = None, on_progress=None) -> str:
+    """Call a single provider with up to MAX_RETRIES attempts.
+
+    Each attempt is first gated by the per-minute token budget limiter, so
+    requests are paced rather than bursting past the API quota. Rate-limit
+    (429) errors wait for the budget window to reset before retrying.
+    """
+    if max_tokens is None:
+        max_tokens = settings.llm_max_output_tokens
+    token_estimate = estimate_tokens(prompt)
     for attempt in range(MAX_RETRIES):
         try:
+            waited = _rate_limiter.acquire(
+                token_estimate,
+                on_wait=lambda delay: (
+                    on_progress(f"{provider_name}: waiting {delay:.0f}s for token budget...")
+                    if on_progress else None
+                ),
+            )
+            if waited:
+                _usage["waited_seconds"] += waited
+
             if provider_name == "gemini":
                 return _call_gemini(prompt, max_tokens, model)
             elif provider_name == "groq":
-                return _call_groq(prompt, max_tokens, model)
+                return _call_groq(prompt, max_tokens)
             elif provider_name == "deepseek":
-                return _call_deepseek(prompt, max_tokens, model)
+                return _call_deepseek(prompt, max_tokens)
         except Exception as e:
             error_str = str(e).lower()
-            is_retryable = any(
-                code in error_str
-                for code in ("429", "500", "503", "rate", "overloaded", "timeout")
-            )
             is_quota_exhausted = "quota" in error_str and "limit: 0" in error_str
 
             if is_quota_exhausted:
                 if on_progress: on_progress(f"{provider_name} quota exhausted, falling back...")
                 logger.warning(f"{provider_name} daily quota exhausted, falling back")
                 raise  # Bubble up to try next provider
+
+            if is_rate_limit_error(e):
+                if attempt < MAX_RETRIES - 1:
+                    wait = _rate_limiter.seconds_until_window_reset()
+                    if on_progress:
+                        on_progress(f"{provider_name} rate limited, retrying in {wait:.0f}s...")
+                    logger.warning(
+                        f"{provider_name} rate limited, waiting {wait:.0f}s for budget window"
+                    )
+                    if wait > 0:
+                        time.sleep(wait)
+                    continue
+                logger.error(f"{provider_name} still rate limited after {MAX_RETRIES} attempt(s)")
+                raise
+
+            is_retryable = any(
+                code in error_str
+                for code in (
+                    "500",
+                    "502",
+                    "503",
+                    "504",
+                    "deadline",
+                    "overloaded",
+                    "timeout",
+                    "timed out",
+                    "empty response",
+                    "connection reset",
+                    "service unavailable",
+                )
+            )
 
             if is_retryable and attempt < MAX_RETRIES - 1:
                 delay = BASE_DELAY * (2**attempt)
@@ -144,9 +292,11 @@ def _provider_configured(provider_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _call_gemini(prompt: str, max_tokens: int = 4096, model: Optional[str] = None) -> str:
+def _call_gemini(prompt: str, max_tokens: Optional[int] = None, model: Optional[str] = None) -> str:
     if not settings.gemini_api_key:
         raise ValueError("GEMINI_API_KEY is not set")
+    if max_tokens is None:
+        max_tokens = settings.llm_max_output_tokens
 
     client = genai.Client(
         api_key=settings.gemini_api_key,
@@ -162,12 +312,38 @@ def _call_gemini(prompt: str, max_tokens: int = 4096, model: Optional[str] = Non
         ),
     )
 
-    if not response.text:
+    text = _extract_gemini_text(response)
+
+    if not text:
         if response.prompt_feedback and response.prompt_feedback.block_reason:
             raise RuntimeError(f"Gemini blocked: {response.prompt_feedback.block_reason}")
         raise RuntimeError("Gemini returned empty response")
 
-    return response.text.strip()
+    return text
+
+
+def _extract_gemini_text(response) -> str:
+    """Extract the model's final answer, skipping internal reasoning parts.
+
+    `gemma-4-31b-it` is a thinking model: it returns `thought=True` reasoning
+    parts plus a final text part. `response.text` can be None when the output
+    budget is consumed by reasoning, even though a valid answer exists.
+    """
+    parts = []
+    for candidate in (response.candidates or []):
+        for part in candidate.content.parts:
+            if getattr(part, "thought", None):
+                continue  # internal reasoning, not the answer
+            if part.text:
+                parts.append(part.text)
+
+    if parts:
+        return "\n".join(parts).strip()
+
+    if response.text:
+        return response.text.strip()
+
+    return ""
 
 
 # ---------------------------------------------------------------------------

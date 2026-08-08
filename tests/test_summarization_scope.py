@@ -22,7 +22,10 @@ def test_youtube_only_run_does_not_process_or_regenerate_rss(isolated_db, monkey
     conn.commit(); conn.close()
 
     generated = []
-    monkeypatch.setattr(service, "_summarize_article", lambda text: ("summary", 1, "test"))
+    monkeypatch.setattr(
+        service, "_summarize_article",
+        lambda text, prompt_name="single_summary", reduce_prompt_name="reduce_synthesis": ("summary", 1, "test"),
+    )
     monkeypatch.setattr(service, "_generate_daily_digest", lambda conn, date: generated.append(("rss", date)))
     monkeypatch.setattr(service, "_generate_youtube_daily_digest", lambda conn, date: generated.append(("youtube", date)))
 

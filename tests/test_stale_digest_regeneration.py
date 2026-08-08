@@ -2,7 +2,7 @@
 
 When a summarized article exists for a date that already has a digest
 but isn't linked to it, run_summarization should regenerate that digest
-(within a 3-day IST window).
+(within the configured stale-digest window).
 """
 import sqlite3
 from datetime import datetime, timezone, timedelta
@@ -22,7 +22,7 @@ def make_ist_date(days_ago: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Stale digest within 3-day window → regeneration triggered
+# Stale digest within window → regeneration triggered
 # ---------------------------------------------------------------------------
 
 
@@ -149,13 +149,17 @@ def test_skips_when_all_linked(isolated_db, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Outside 3-day window → skipped
+# Outside stale-digest window → skipped
 # ---------------------------------------------------------------------------
 
 
 def test_skips_outside_window(isolated_db, monkeypatch):
-    """Articles outside the 3-day window should NOT trigger auto-regeneration."""
-    date_str = make_ist_date(4)  # 4 days ago — outside window
+    """Articles older than the configured stale-digest window should NOT
+    trigger auto-regeneration."""
+    from app.config import settings
+
+    window = settings.stale_digest_window_days
+    date_str = make_ist_date(window + 1)  # just outside the window
 
     conn = isolated_db.get_db()
     try:

@@ -1,11 +1,14 @@
 import sqlite3
+from pathlib import Path
 
 
 def test_versioned_migration_is_idempotent(isolated_db):
     isolated_db.init_db()
     conn = isolated_db.get_db()
     try:
-        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
+        migrations_dir = Path(__file__).resolve().parents[1] / "migrations"
+        expected = len(list(migrations_dir.glob("*.sql")))
+        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == expected
         source_columns = {row[1] for row in conn.execute("PRAGMA table_info(sources)")}
         assert {"source_type", "archived_at", "last_fetch_status"} <= source_columns
         assert conn.execute("SELECT name FROM sqlite_master WHERE name='runs'").fetchone()

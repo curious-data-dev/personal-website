@@ -32,6 +32,12 @@ FALLBACK_PROMPTS = {
         "Synthesize these sub-summaries into one cohesive summary. "
         "Preserve all unique details:\n\n{sub_summaries}"
     ),
+    "condense_summary": (
+        "Condense the following article summary into a compact digest item. "
+        "Preserve all names, numbers, dates, and distinct stories. "
+        "Remove only filler and repetition. Neutral, objective tone.\n\n"
+        "ARTICLE SUMMARY:\n{text}\n\nCONDENSED SUMMARY:"
+    ),
     "daily_digest": (
         "You are a daily news editor. Synthesize the following article summaries "
         "into one cohesive daily digest for {date}. "

@@ -15,3 +15,12 @@ out.html
 *.jpg
 *.jpeg
 rss-aggregator.code-workspace
+
+# local runtime logs / scratch
+server.log
+pytest_full.txt
+pytest_output.txt
+tailwindcss.exe
+.pytest_temp/
+.tmp/
+C*.txt
