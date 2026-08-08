@@ -72,8 +72,10 @@ class Settings(BaseSettings):
     llm_input_tokens_per_min: int = 200000
     # Rolling window (seconds) for the per-minute token budget
     rate_limit_window_seconds: int = 60
-    # Target length (chars) for condensed summaries used in daily digests
-    condense_target_chars: int = 600
+    # Target length (chars) for condensed summaries used in daily digests.
+    # ~3000 chars ≈ 500 words, matching the condense_summary.md prompt. Also
+    # used as the skip-if-short threshold and the truncation fallback.
+    condense_target_chars: int = 3000
     # How far back (days) to scan for digests whose articles were linked late
     # (feed lag) and thus need regeneration
     stale_digest_window_days: int = 7

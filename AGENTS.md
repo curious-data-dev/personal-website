@@ -100,7 +100,8 @@ digests keep their stored text.
   - Do NOT write the Sources section (appended by code)
 - `youtube_digest.md` — same bullet/arc style, but attributed to creators
   (claim + reasoning + implication).
-- `condense_summary.md` — 150-200 word condensation per article, preserving all
+- `condense_summary.md` — ~500-word condensation per article (raised from
+  150-200 words so the digest model sees richer source material), preserving all
   names/numbers/dates. Feeds the digest prompt.
 
 ## 6. Known Problems & Fixes Already Implemented (this session)
@@ -184,7 +185,8 @@ Key settings (env-overridable via `.env`):
 - `llm_digest_max_output_tokens = 32768` (single digest call — ~50-article headroom)
 - `llm_input_tokens_per_min = 200000`, `rate_limit_window_seconds = 60`
 - `lookback_hours = 96`, `stale_digest_window_days = 7`
-- `condense_target_chars = 600`, `max_article_chars = 15000`, `chunk_size = 4000`
+- `condense_target_chars = 3000` (~500 words; also skip-if-short threshold + fallback),
+  `max_article_chars = 15000`, `chunk_size = 4000`
 - `scrape_cron_hour = 8` (VPS `.env` sets `SCRAPE_CRON_HOUR=08`, `MINUTE=00` →
   **daily 08:00 IST**)
 

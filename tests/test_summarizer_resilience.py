@@ -79,7 +79,7 @@ def test_digest_uses_condensed_summaries_and_caches_them(isolated_db, monkeypatc
     article_id = _insert_article(conn, source_id, status="summarized")
     conn.execute(
         "UPDATE articles SET summary_text=? WHERE id=?",
-        ("d" * 2000, article_id),
+        ("d" * 5000, article_id),
     )
     conn.commit(); conn.close()
 
