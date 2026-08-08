@@ -410,8 +410,8 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
             article_summaries=article_summaries,
         ),
         provider=provider,
-        model=model,
-        max_tokens=8192,
+        model=model or settings.gemini_digest_model,
+        max_tokens=settings.llm_digest_max_output_tokens,
         on_progress=on_progress,
     )
 
@@ -506,8 +506,8 @@ def _generate_youtube_daily_digest(
             video_summaries=video_summaries,
         ),
         provider=provider,
-        model=model,
-        max_tokens=8192,
+        model=model or settings.gemini_digest_model,
+        max_tokens=settings.llm_digest_max_output_tokens,
         on_progress=on_progress,
     )
 

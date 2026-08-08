@@ -16,12 +16,22 @@ class Settings(BaseSettings):
     # non-thinking model here; the heavier thinking model stays for article
     # summaries and the daily digest.
     gemini_condense_model: str = "gemini-3.1-flash-lite"
+    # Model for daily/youtube digest generation. A digest is ONE LLM call that
+    # must render every story of the day, so it needs a large output budget.
+    # gemini-3.1-flash-lite is fast and non-thinking with a 64K output limit
+    # (vs gemma-4-31b-it which burns output on reasoning), so it can produce
+    # long, detailed digests without truncation.
+    gemini_digest_model: str = "gemini-3.1-flash-lite"
 
     # gemma-4-31b-it is a thinking model: it spends output tokens on internal
     # reasoning BEFORE producing the answer. A 4096-token output budget gets
     # fully consumed by reasoning (empty responses ~2/3 of the time), so we
     # raise the default to leave room for reasoning + the final answer.
     llm_max_output_tokens: int = 8192
+    # Output cap for the single daily/youtube digest call. 32768 tokens is ~4x
+    # the old cap and matches gemini-3.1-flash-lite's generous limit, giving
+    # headroom for ~50-article days without truncation (see gemini_digest_model).
+    llm_digest_max_output_tokens: int = 32768
 
     # Email (optional)
     gmail_user: str = ""
@@ -56,8 +66,10 @@ class Settings(BaseSettings):
     min_summary_chars: int = 600
     chunk_size: int = 4000
     chunk_overlap: int = 400
-    # Per-minute input-token budget for the LLM API (free tier = 16k TPM)
-    llm_input_tokens_per_min: int = 16000
+    # Per-minute input-token budget for the LLM API. gemini-3.1-flash-lite's
+    # free tier allows 250k TPM, so pace against the real quota (leave a little
+    # headroom for burst safety) instead of the old 16k that throttled us early.
+    llm_input_tokens_per_min: int = 200000
     # Rolling window (seconds) for the per-minute token budget
     rate_limit_window_seconds: int = 60
     # Target length (chars) for condensed summaries used in daily digests

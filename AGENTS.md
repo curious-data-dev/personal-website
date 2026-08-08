@@ -153,13 +153,36 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   bullet, each carrying what/why/next with concrete facts, plain-language
   glosses. Applied to both RSS and YouTube prompts.
 
+### 6.6 Digest capacity: 8192-token output cap → ~50-article headroom ✅ FIXED
+- **Problem**: the digest is ONE LLM call with a hardcoded `max_tokens=8192`
+  (service.py). At ~342 tokens of output per story, that capped out around
+  20 articles; 50+ silently truncated (the Aug 7 6-article digest was already
+  riding at ~8,180 tokens).
+- **Fix**:
+  - `app/config.py`: added `gemini_digest_model = "gemini-3.1-flash-lite"`
+    (fast, non-thinking; 1M input / 64K output context) and
+    `llm_digest_max_output_tokens = 32768`; raised
+    `llm_input_tokens_per_min` to 200000 (flash-lite free tier = 250K TPM).
+  - `app/summarizer/service.py`: both `_generate_daily_digest` and
+    `_generate_youtube_daily_digest` now pass
+    `model=model or settings.gemini_digest_model` and
+    `max_tokens=settings.llm_digest_max_output_tokens`.
+- **Headroom (measured)**: input = 912 template + ~370/article; output =
+  ~342/article + ~300 overhead. 50 articles → input 19.6K / output 17.4K —
+  comfortable. 80 articles OK. ~150 is where the 32K output cap binds.
+- **Coverage guarantee**: `daily_digest.md` has a STEP 0 Story Inventory +
+  STEP 3 Coverage Check (flash-lite dropped stories without it). The digest
+  model still occasionally folds a minor item into a related bullet.
+
 ## 7. Environment / Config (app/config.py)
 
 Key settings (env-overridable via `.env`):
-- `gemini_model = gemma-4-31b-it` (thinking model — for article summaries + digest)
+- `gemini_model = gemma-4-31b-it` (thinking model — for article summaries)
 - `gemini_condense_model = gemini-3.1-flash-lite` (non-thinking — for condensation)
-- `llm_max_output_tokens = 8192` (enough for thinking + answer)
-- `llm_input_tokens_per_min = 16000`, `rate_limit_window_seconds = 60`
+- `gemini_digest_model = gemini-3.1-flash-lite` (non-thinking — for the daily/youtube digest)
+- `llm_max_output_tokens = 8192` (article summaries)
+- `llm_digest_max_output_tokens = 32768` (single digest call — ~50-article headroom)
+- `llm_input_tokens_per_min = 200000`, `rate_limit_window_seconds = 60`
 - `lookback_hours = 96`, `stale_digest_window_days = 7`
 - `condense_target_chars = 600`, `max_article_chars = 15000`, `chunk_size = 4000`
 - `scrape_cron_hour = 8` (VPS `.env` sets `SCRAPE_CRON_HOUR=08`, `MINUTE=00` →
