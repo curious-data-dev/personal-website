@@ -126,11 +126,17 @@ def _append_trailing_content(parts: list, lines: list[str]) -> None:
         parts.append(f'<p>{"<br>".join(_render_inline(l) for l in rest)}</p>')
 
 def _is_bullet_list(lines: list[str]) -> bool:
-    """Check if all non-empty lines start with a bullet marker."""
+    """Check if all non-empty lines start with a bullet marker.
+
+    A line is a bullet only if it starts with `- ` or `* ` (marker + space).
+    A bare `**bold**` line is NOT a bullet — it's bold text — so we must not
+    match it here (otherwise `_clean_bullet` would strip the leading `*` and
+    leave a dangling trailing `**`).
+    """
     non_empty = [l.strip() for l in lines if l.strip()]
     if not non_empty:
         return False
-    return all(l[0] in '-*\u2022' for l in non_empty)
+    return all(l.startswith('- ') or l.startswith('* ') or l.startswith('\u2022') for l in non_empty)
 
 def _clean_bullet(line: str) -> str:
     """Strip leading bullet marker and whitespace from a line."""
