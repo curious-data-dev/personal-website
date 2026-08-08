@@ -98,7 +98,15 @@ digests keep their stored text.
   - Plain-English glosses for jargon on first use ("SEBI (India's market
     regulator)", "margin calls (demands from lenders for more collateral)")
   - Do NOT write the Sources section (appended by code)
-- `youtube_digest.md` — same bullet/arc style, but attributed to creators
+- `digest_story_extract.md` — per-article extraction prompt (new Aug 8
+  architecture). One small LLM call per article extracts ONLY that article's
+  stories as 4-part-arc bullets. Guarantees full coverage (flash-lite was
+  dropping ~8/40 stories when asked to enumerate everything in one pass).
+- `digest_merge.md` — merge prompt. Takes the pre-extracted bullets and ONLY
+  groups them into sections + writes Highlights/Key Takeaway. Keeps bullets
+  verbatim (model must NOT reword/drop them).
+- `youtube_digest.md` — YouTube digest. Same two-phase extract→merge flow
+  (uses digest_story_extract + digest_merge), topics attributed to creators
   (claim + reasoning + implication).
 - `condense_summary.md` — ~500-word condensation per article (raised from
   150-200 words so the digest model sees richer source material), preserving all
@@ -174,6 +182,24 @@ These are DONE — a fresh agent must know they exist and where, to avoid
 - **Coverage guarantee**: `daily_digest.md` has a STEP 0 Story Inventory +
   STEP 3 Coverage Check (flash-lite dropped stories without it). The digest
   model still occasionally folds a minor item into a related bullet.
+
+### 6.7 Digest architecture: single-pass → per-article extract + merge ✅ FIXED
+- **Problem**: a single LLM pass over all articles could not reliably enumerate
+  every story. On the 5-article Aug 4 digest (~40 stories), flash-lite dropped
+  ~8 stories and did not notice (its self-check declared "none missing").
+- **Fix** (`app/summarizer/service.py` + two new prompts):
+  - **Phase 1** `digest_story_extract.md`: one small call per article extracts
+    that article's stories as 4-part-arc bullets, tagged `[REF i]`. Each call
+    only enumerates one summary (2-15 stories) → reliable.
+  - **Phase 2** `digest_merge.md`: one call groups the pre-extracted bullets
+    into sections + writes Highlights/Key Takeaway. Bullets must be kept
+    verbatim (prompt forbids rewording/dropping).
+  - Both RSS and YouTube digests use this flow. Old `daily_digest.md` /
+    `youtube_digest.md` single-pass prompts are now unused (kept as reference).
+  - Result: 50/50 stories covered on Aug 4 (was ~14-18 with drops).
+- **Cost**: digest generation is now N extract calls + 1 merge call. At 50
+  articles that's 51 small calls (vs 1 big one) — within the 200K/min budget
+  (each extract is small) but slower wall-clock.
 
 ## 7. Environment / Config (app/config.py)
 

@@ -23,7 +23,7 @@ Group topics into `##` sections with a single emoji + short plain-English title 
 
 - **Short bold headline** — 1-2 sentences on the claim (attributed to the creator, with names/numbers). Then 1-2 sentences on the reasoning. Then a short sentence on the implication or advice. [1]
 
-Each bullet is ONE distinct topic. Do not merge topics into one dense paragraph. Do not use sub-paragraphs inside a bullet — but a multi-sentence bullet is expected.
+Each bullet is ONE distinct topic. Do not merge topics into one dense paragraph. Do not use sub-paragraphs inside a bullet — but a multi-sentence bullet is expected. Do NOT put blank lines between consecutive bullets — bullets in the same section must be consecutive lines with single newlines between them, so they render as one list.
 
 ## 💡 Key Takeaway
 3-4 bullets summarising the most useful takeaway, each as `- **Bold label:** one or two plain sentences [ref]`.

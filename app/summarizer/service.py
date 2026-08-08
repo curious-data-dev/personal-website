@@ -392,22 +392,43 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
         source_list_lines.append(f"[{i}] [{source_name} — {title}]({url})")
         ref_urls[i] = url
 
-    # Build article summaries with reference numbers
-    article_summaries = "\n\n---\n\n".join(
-        f"[REF {i}] SOURCE: {a.get('source_name', 'Unknown')} | {a.get('source_category', '')}\n"
-        f"TITLE: {a['title']}\n"
-        f"SUMMARY: {_get_condensed_summary(conn, a)}"
-        for i, a in enumerate(articles, start=1)
-    )
-
     source_footnote = "\n".join(source_list_lines)
 
-    if on_progress: on_progress("Sending to LLM...")
+    # PHASE 1 — Per-article story extraction. One small call per article so the
+    # model only has to enumerate the stories in a single summary (2-15 stories),
+    # which it does reliably. This guarantees every story from every article
+    # survives, even on dense days / at 50+ articles.
+    story_bullets = []
+    for i, a in enumerate(articles, start=1):
+        if on_progress:
+            on_progress(f"Extracting stories from article {i}/{len(articles)}: {a['title'][:50]}")
+        try:
+            chunk = call_llm(
+                prompt_manager.get_prompt("digest_story_extract").format(
+                    ref_num=i,
+                    summary=_get_condensed_summary(conn, a),
+                ),
+                provider=provider,
+                model=model or settings.gemini_digest_model,
+                max_tokens=4096,
+                on_progress=on_progress,
+            )
+        except Exception as e:
+            logger.warning(f"Story extraction failed for article #{a['id']}: {e}")
+            # Fall back to a single bullet with the whole condensed summary so
+            # the article is still represented rather than silently dropped.
+            chunk = f"- **{a['title']}** — {(_get_condensed_summary(conn, a))[:800]} [{i}]"
+        story_bullets.append(chunk.strip())
 
+    # PHASE 2 — Merge: organize the pre-extracted bullets into sections +
+    # highlights + key takeaway. Stories are already explicit, so the model
+    # only groups them (low risk of dropping anything).
+    if on_progress: on_progress("Merging story bullets into the digest...")
+    all_bullets = "\n\n".join(story_bullets)
     digest_text = call_llm(
-        prompt_manager.get_prompt("daily_digest").format(
+        prompt_manager.get_prompt("digest_merge").format(
             date=date_str,
-            article_summaries=article_summaries,
+            story_bullets=all_bullets,
         ),
         provider=provider,
         model=model or settings.gemini_digest_model,
@@ -426,6 +447,10 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
             parts.append(f"[[{n}]]({url})")
         return ''.join(parts)
     digest_text = re.sub(r'(?:\[\d+\])+', _make_links, digest_text)
+
+    # Collapse blank lines between consecutive bullet items so they render as
+    # one list block instead of one-item-per-list (renderer splits on \n\n).
+    digest_text = re.sub(r'\n\n(?=[-*] )', '\n', digest_text)
 
     # Append source footnote with clickable links
     digest_text += f"\n\n## 📚 Sources\n\n{source_footnote}"
@@ -487,23 +512,38 @@ def _generate_youtube_daily_digest(
         source_list_lines.append(f"[{i}] [{source_name} — {title}]({url})")
         ref_urls[i] = url
 
-    # Build video summaries with reference numbers
-    video_summaries = "\n\n---\n\n".join(
-        f"[REF {i}] CHANNEL: {v.get('source_name', 'Unknown')}\n"
-        f"TITLE: {v['title']}\n"
-        f"SUMMARY: {_get_condensed_summary(conn, v)}"
-        for i, v in enumerate(videos, start=1)
-    )
-
     source_footnote = "\n".join(source_list_lines)
 
-    if on_progress:
-        on_progress("Sending YouTube digest to LLM...")
+    # PHASE 1 — Per-video topic extraction. One small call per video so every
+    # distinct topic from every video is captured reliably.
+    story_bullets = []
+    for i, v in enumerate(videos, start=1):
+        if on_progress:
+            on_progress(f"Extracting topics from video {i}/{len(videos)}: {v['title'][:50]}")
+        try:
+            chunk = call_llm(
+                prompt_manager.get_prompt("digest_story_extract").format(
+                    ref_num=i,
+                    summary=_get_condensed_summary(conn, v),
+                ),
+                provider=provider,
+                model=model or settings.gemini_digest_model,
+                max_tokens=4096,
+                on_progress=on_progress,
+            )
+        except Exception as e:
+            logger.warning(f"Topic extraction failed for video #{v['id']}: {e}")
+            chunk = f"- **{v['title']}** — {(_get_condensed_summary(conn, v))[:800]} [{i}]"
+        story_bullets.append(chunk.strip())
 
+    # PHASE 2 — Merge: organize the pre-extracted topic bullets into the digest.
+    if on_progress:
+        on_progress("Merging topic bullets into the YouTube digest...")
+    all_bullets = "\n\n".join(story_bullets)
     digest_text = call_llm(
-        prompt_manager.get_prompt("youtube_digest").format(
+        prompt_manager.get_prompt("digest_merge").format(
             date=date_str,
-            video_summaries=video_summaries,
+            story_bullets=all_bullets,
         ),
         provider=provider,
         model=model or settings.gemini_digest_model,
@@ -522,6 +562,10 @@ def _generate_youtube_daily_digest(
             parts.append(f"[[{n}]]({url})")
         return ''.join(parts)
     digest_text = re.sub(r'(?:\[\d+\])+', _make_links, digest_text)
+
+    # Collapse blank lines between consecutive bullet items so they render as
+    # one list block instead of one-item-per-list (renderer splits on \n\n).
+    digest_text = re.sub(r'\n\n(?=[-*] )', '\n', digest_text)
 
     # Append source footnote with clickable links
     digest_text += f"\n\n## 📚 Sources\n\n{source_footnote}"

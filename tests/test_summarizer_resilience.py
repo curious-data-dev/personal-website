@@ -89,6 +89,8 @@ def test_digest_uses_condensed_summaries_and_caches_them(isolated_db, monkeypatc
         prompts.append(prompt)
         if "CONDENSED SUMMARY" in prompt:
             return "Condensed: key facts preserved."
+        if "STORY BULLETS" in prompt:
+            return "- **Story** — What happened: key facts. [1]"
         return "DIGEST OUTPUT"
 
     monkeypatch.setattr(service, "call_llm", fake_call_llm)
@@ -101,12 +103,15 @@ def test_digest_uses_condensed_summaries_and_caches_them(isolated_db, monkeypatc
     finally:
         conn.close()
 
-    # Condensation call happened before the digest call.
+    # Condensation call happened before the extract call.
     assert any("CONDENSED SUMMARY" in p for p in prompts)
-    # The digest prompt must embed the condensed text, not the 2000-char summary.
-    digest_prompt = [p for p in prompts if "DAILY DIGEST" in p]
-    assert digest_prompt and "Condensed: key facts preserved." in digest_prompt[0]
-    assert "d" * 2000 not in digest_prompt[0]
+    # The per-article extract prompt must embed the condensed text, not the raw summary.
+    extract_prompt = [p for p in prompts if "STORY BULLETS" in p]
+    assert extract_prompt and "Condensed: key facts preserved." in extract_prompt[0]
+    assert "d" * 2000 not in extract_prompt[0]
+    # The merge pass must receive the extracted story bullets.
+    merge_prompt = [p for p in prompts if "DAILY DIGEST" in p]
+    assert merge_prompt and "Story" in merge_prompt[0]
 
     # Condensed summary cached on the article row for reuse.
     conn = isolated_db.get_db()
@@ -143,7 +148,8 @@ def test_short_summaries_skip_condensation_call(isolated_db, monkeypatch):
     finally:
         conn.close()
 
-    assert calls["n"] == 1  # only the digest call, no condensation call
+    # Short summaries skip condensation, so exactly 2 calls: story extract + merge.
+    assert calls["n"] == 2
 
 
 def test_reduce_groups_subsummaries_under_token_budget(monkeypatch):
