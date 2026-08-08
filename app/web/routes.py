@@ -110,8 +110,18 @@ def render_markdown(text: str) -> str:
 
         # Regular paragraph
         else:
-            rendered = '<br>'.join(_render_inline(l) for l in lines)
-            parts.append(f'<p>{rendered}</p>')
+            # A bold-only first line is a story sub-heading — render it as its
+            # own paragraph even if the source forgot the blank line, so it
+            # keeps visual separation from the following body text.
+            first_bold = first.startswith('**') and first.endswith('**')
+            if first_bold and len(lines) > 1:
+                parts.append(f'<p>{_render_inline(first)}</p>')
+                rest = [l for l in lines[1:] if l.strip()]
+                if rest:
+                    parts.append(f'<p>{"<br>".join(_render_inline(l) for l in rest)}</p>')
+            else:
+                rendered = '<br>'.join(_render_inline(l) for l in lines)
+                parts.append(f'<p>{rendered}</p>')
     return '\n'.join(parts)
 
 def _append_trailing_content(parts: list, lines: list[str]) -> None:
