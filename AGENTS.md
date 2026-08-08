@@ -5,7 +5,8 @@ left off without re-discovering the codebase. It captures architecture, known
 issues, the fixes already implemented (and where), gotchas, and the deploy
 workflow. **Read this before doing anything.**
 
-Last updated: 2026-08-08 (session: fix condensation quality + digest format).
+Last updated: 2026-08-09 (session: digest format → flowing story paragraphs,
+renderer heading fixes, regenerated Aug 4-8 digests, DB-copy deploy to VPS).
 
 ---
 
@@ -89,7 +90,8 @@ Prompts are loaded from `Main Architechture/prompts/` by `app/prompts/manager.py
 edit a prompt template, regenerate existing digests to see the effect** — old
 digests keep their stored text.
 
-- `daily_digest.md` — RSS digest. Current format (Aug 8 fix):
+- `daily_digest.md` — RSS digest. **UNUSED since the extract→merge refactor**
+  (kept as reference). Former format (Aug 8):
   - `## Today's Highlights` (2-3 plain sentences, no tags)
   - `##` sections with emoji + plain-English titles
   - **one story per bullet**: bold headline + WHAT happened (names/numbers/
@@ -100,13 +102,14 @@ digests keep their stored text.
   - Do NOT write the Sources section (appended by code)
 - `digest_story_extract.md` — per-article extraction prompt (new Aug 8
   architecture). One small LLM call per article extracts ONLY that article's
-  stories as **headline + flowing story paragraph** blocks (natural prose
-  covering what happened / why / relevance / what's next, no labels).
-  Guarantees full coverage (flash-lite was dropping ~8/40 stories when asked
-  to enumerate everything in one pass).
+  stories as **`**Short headline**` + flowing prose paragraph** blocks (natural
+  prose covering what happened / why / relevance / what's next, no labels, no
+  bullets), each ending with `[REF n]`. Guarantees full coverage (flash-lite was
+  dropping ~8/40 stories when asked to enumerate everything in one pass).
 - `digest_merge.md` — merge prompt. Takes the pre-extracted story blocks and
-  ONLY groups them into sections + writes Highlights/Key Takeaway. Keeps blocks
-  verbatim (model must NOT reword/drop them).
+  ONLY groups them into `##` sections + writes Highlights/Key Takeaway. Keeps
+  blocks verbatim (model must NOT reword/drop them). Consecutive blocks are
+  separated by a blank line (paragraphs, NOT list items).
 - `youtube_digest.md` — YouTube digest. Same two-phase extract→merge flow
   (uses digest_story_extract + digest_merge), topics attributed to creators
   (claim + reasoning + implication).
@@ -158,11 +161,12 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   `run_summarization()`: finds summarized-but-unlinked articles within window
   and regenerates those dates' digests.
 
-### 6.5 Digest format: dense prose → scannable bullets with full story arc ✅ FIXED
+### 6.5 Digest format: dense prose → scannable bullets → flowing story paragraphs ✅ FIXED
 - The Aug 4 digest was a wall of merged paragraphs (hard to scan), then an
-  over-correction stripped all detail. Current format (see §5): one story per
-  bullet, each carrying what/why/next with concrete facts, plain-language
-  glosses. Applied to both RSS and YouTube prompts.
+  over-correction stripped all detail. Current format (see §5): each story is a
+  **`**short headline**` + flowing 3-5 sentence paragraph** (what/why/matters/
+  next woven into natural prose, concrete names/numbers/dates, plain-language
+  glosses). Applied to both RSS and YouTube prompts.
 
 ### 6.6 Digest capacity: 8192-token output cap → ~50-article headroom ✅ FIXED
 - **Problem**: the digest is ONE LLM call with a hardcoded `max_tokens=8192`
@@ -191,10 +195,12 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   ~8 stories and did not notice (its self-check declared "none missing").
 - **Fix** (`app/summarizer/service.py` + two new prompts):
   - **Phase 1** `digest_story_extract.md`: one small call per article extracts
-    that article's stories as 4-part-arc bullets, tagged `[REF i]`. Each call
-    only enumerates one summary (2-15 stories) → reliable.
-  - **Phase 2** `digest_merge.md`: one call groups the pre-extracted bullets
-    into sections + writes Highlights/Key Takeaway. Bullets must be kept
+    that article's stories as **`**headline**` + flowing paragraph** blocks,
+    tagged `[REF i]`. Each call only enumerates one summary (2-15 stories) →
+    reliable. On extraction failure, falls back to a single `- **title**` bullet
+    with the condensed summary so the article is never silently dropped.
+  - **Phase 2** `digest_merge.md`: one call groups the pre-extracted blocks
+    into sections + writes Highlights/Key Takeaway. Blocks must be kept
     verbatim (prompt forbids rewording/dropping).
   - Both RSS and YouTube digests use this flow. Old `daily_digest.md` /
     `youtube_digest.md` single-pass prompts are now unused (kept as reference).
@@ -202,6 +208,28 @@ These are DONE — a fresh agent must know they exist and where, to avoid
 - **Cost**: digest generation is now N extract calls + 1 merge call. At 50
   articles that's 51 small calls (vs 1 big one) — within the 200K/min budget
   (each extract is small) but slower wall-clock.
+
+### 6.8 Renderer: **bold** story headings misrendered as bullets ✅ FIXED
+- **Problem**: a bold-only paragraph like `**Headline**` was misclassified as a
+  **bullet list** by `_is_bullet_list` (`app/web/routes.py`), which treated any
+  line starting with `*` as a bullet. `_clean_bullet` then stripped the leading
+  `*` markers, leaving a dangling trailing `**` in the rendered output (e.g.
+  "Abhijeet Dipke leads NEET-UG reform protests**").
+- **Fix**: `_is_bullet_list` now only treats a line as a bullet when it starts
+  with `- `, `* ` (marker + space), or `•`. A bare `**bold**` line renders as
+  bold text instead.
+- The stored digest text was always correct — this was purely a rendering bug.
+
+### 6.9 Renderer: no visual gap between bold heading and body ✅ FIXED
+- **Problem**: digests that stored the story heading and body WITHOUT a blank
+  line between them (`**Headline**\ntext` — e.g. Aug 4) rendered as a single
+  `<p>` joined with `<br>`, so the heading ran straight into the paragraph with
+  no spacing. Digests that happened to have a blank line (Aug 5/7) showed the
+  gap.
+- **Fix** (`app/web/routes.py` `render_markdown`): a bold-only first line in a
+  paragraph block is now rendered as its own `<p>` (the heading), with the
+  remaining lines as a following `<p>` — giving consistent visual separation
+  whether or not the source wrote a blank line.
 
 ## 7. Environment / Config (app/config.py)
 
@@ -229,6 +257,9 @@ only (groq/deepseek ignore it).
   (worker), one-shot `migrate`.
 - **DB is separate per machine. NEVER copy the local DB over the VPS DB in
   normal operation** (README warning). Exceptions are deliberate, with backup.
+  This was done on **2026-08-09** to ship the regenerated Aug 4-8 digests
+  without re-running LLM calls on the VPS: stopped containers → backed up VPS DB
+  → `scp` local `data/aggregator.db` over the VPS one → started containers.
 - **Deploy code flow**:
   1. Commit + push locally: `git push origin main`
   2. SSH to VPS: `cd /opt/personal-website && git pull origin main`
@@ -238,8 +269,9 @@ only (groq/deepseek ignore it).
   4. Verify: `curl -s http://127.0.0.1:8000/health` (→ `{"status":"ok"}`)
 - **Regenerate a date's digest on the VPS** (new format):
   `docker compose exec -T app python scripts/generate_date_digest.py --date 2026-08-04`
-- **DB backup on VPS** (taken before the last migration):
-  `/opt/personal-website/data/aggregator.db.bak-20260808-213533`
+- **DB backups on VPS**:
+  - `data/aggregator.db.bak-20260808-213533` (before the last migration)
+  - `data/aggregator.db.bak-20260809-pre-db-copy` (before the DB-copy deploy)
 - **Windows → VPS automation**: SSH password auth needs `SSH_ASKPASS` + a temp
   askpass script; see Gotcha #6. There is no SSH key set up.
 
@@ -262,6 +294,11 @@ only (groq/deepseek ignore it).
    immediately after** (credential hygiene — see §10).
 7. **Digest regeneration for dates outside the stale window** won't happen
    automatically; use `scripts/generate_date_digest.py --date <date>`.
+8. **`docker compose start` re-runs the one-shot `migrate` service** (it's part
+   of the compose file with `restart: no`; `start` starts every defined
+   container). That's fine — migrate is a no-op when no migrations are pending —
+   but don't be surprised by the `migrate` container appearing in `docker ps`
+   after a `docker compose start app worker`.
 
 ## 10. Security / Credential Hygiene (IMPORTANT)
 
@@ -273,10 +310,17 @@ only (groq/deepseek ignore it).
 - `.env` is gitignored and must stay that way. Watch that `WEB_PASSWORD` isn't
   pushed if `.env` is ever force-added.
 
-## 11. Current Data State (as of 2026-08-08)
+## 11. Current Data State (as of 2026-08-09)
 
-- Local DB: 591 articles, 69 daily digests, 26 YouTube digests.
-- Aug 4 digest (#128) has 5 articles incl. The Hindu Evening Wrap (Udhayanidhi
-  arrest), in the new bullet format. July 31 has 1 RSS + 1 YouTube digest.
-- Some older June/July articles are `summarized` but not linked to digests
-  (pre-existing data inconsistency outside the stale window — left alone).
+- Local DB: 591 articles, 69 daily digests, 26 YouTube digests. **Identical DB
+  now also on the VPS** (shipped via DB-copy deploy on 2026-08-09 — see §8).
+- **Aug 4-8 digests regenerated** (2026-08-09) in the current flowing-story
+  format: Aug 4 (5 articles, 24.4K chars), Aug 5 (7 articles, 27.8K), Aug 6
+  (6 articles, 24.7K), Aug 7 (6 articles, 27.3K), Aug 8 (3 articles, 10.8K).
+  Aug 8's digest previously had only 1 article; regeneration picked up all 3
+  summarized articles.
+- All 4 digests verified rendering on the live site (no dangling `**`, proper
+  bold headings, heading/body gap) both locally and on the VPS.
+- July 31 has 1 RSS + 1 YouTube digest. Some older June/July articles are
+  `summarized` but not linked to digests (pre-existing data inconsistency
+  outside the stale window — left alone).
