@@ -63,7 +63,7 @@ scripts/                 # Dev/diagnostic helpers (committed).
   validate_digest_tokens.py
 data/aggregator.db       # Local SQLite DB (gitignored).
 migrations/              # Versioned SQL migrations (applied via migrate service).
-tests/                   # pytest suite. 88 tests, all passing.
+tests/                   # pytest suite. 99 tests, all passing.
 ```
 
 ## 4. Architecture Notes
@@ -230,6 +230,36 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   paragraph block is now rendered as its own `<p>` (the heading), with the
   remaining lines as a following `<p>` — giving consistent visual separation
   whether or not the source wrote a blank line.
+
+### 6.10 Digest read/unread tracking ✅ DONE
+- **`read_flag` column** on `daily_digests` and `youtube_digests`
+  (`app/database.py`): 0 = unread, 1 = read, tracked **separately per type** for
+  the same date.
+- Migration `009_digest_read_flags.sql` adds the column and **backfills all
+  existing digests as read** (shipped with all rows = 1). The column is
+  **NOT in `SCHEMA`** — SQLite has no `ADD COLUMN IF NOT EXISTS`, so if SCHEMA
+  created the column AND the migration ALTERed it, fresh DBs would fail with
+  "duplicate column name" (same pattern as migrations 001/002/008). Fresh DBs
+  get the column via migration 009 like existing ones.
+- Both `insert_daily_digest` and `insert_youtube_digest` now set `read_flag = 0`
+  in their `ON CONFLICT(date) DO UPDATE SET` clause — so **first generation AND
+  every regeneration** yield an unread digest.
+- Routes (`app/web/routes.py`): `GET /tracker` (renders `tracker.html`) and
+  `POST /api/read` (JSON `{type: "rss"|"youtube", date, read}`) — **no auth**
+  (matching the public digest pages). `set_digest_read_flag` returns False → 404
+  when no digest exists for that date; bad type/date → 400.
+- **Auto-read rule** (JS on `index.html` + `youtube.html`): an IntersectionObserver
+  fires a single `POST /api/read {read: true}` when the bottom of the digest
+  content card becomes visible **and** `window.scrollY > 0` (user actually
+  scrolled), then disconnects. Short digests that fit on screen without
+  scrolling are **NOT** auto-marked. Failures are silent; the manual toggle is
+  the fallback.
+- Tracker (`get_tracker_rows`) shows the **last 30 days**, newest first, one row
+  per date with per-type RSS/YouTube flags (None when no digest of that type)
+  and links to `/digest/{date}` and `/youtube?date={date}`.
+- Manual controls: read/unread toggle buttons on both digest pages + interactive
+  checkboxes in the tracker table (both write the same flag via `/api/read`).
+- Sidebar link to `/tracker` added in `base.html` (desktop + mobile drawer).
 
 ## 7. Environment / Config (app/config.py)
 
