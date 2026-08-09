@@ -295,6 +295,12 @@
             toggle.classList.toggle('bg-amber-50', !read);
             toggle.classList.toggle('text-amber-700', !read);
             toggle.classList.toggle('border-amber-200', !read);
+            toggle.classList.toggle('dark:bg-green-950', read);
+            toggle.classList.toggle('dark:text-green-400', read);
+            toggle.classList.toggle('dark:border-green-800', read);
+            toggle.classList.toggle('dark:bg-amber-950', !read);
+            toggle.classList.toggle('dark:text-amber-400', !read);
+            toggle.classList.toggle('dark:border-amber-800', !read);
             toggle.textContent = read ? '✓ Read' : '● Unread';
         }
 
@@ -313,9 +319,14 @@
     }
 
     const end = document.getElementById('digest-end');
-    if (end && toggle && toggle.dataset.read !== '1') {
-        const observer = new IntersectionObserver(function(entries) {
-            if (entries.some(function(e) { return e.isIntersecting && window.scrollY > 0; })) {
+    if (end && toggle) {
+        let autoReadFired = false;
+        function maybeAutoRead() {
+            if (autoReadFired) return;
+            if (toggle.dataset.read === '1') return;
+            const r = end.getBoundingClientRect();
+            if (r.top <= window.innerHeight + 40 && window.scrollY > 0) {
+                autoReadFired = true;
                 fetch('/api/read', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -323,10 +334,13 @@
                 }).then(function(resp) {
                     if (resp.ok) setReadUI(true);
                 }).catch(function() {});
-                observer.disconnect();
+                window.removeEventListener('scroll', maybeAutoRead);
+                window.removeEventListener('pageshow', maybeAutoRead);
             }
-        }, { rootMargin: '0px 0px 40px 0px' });
-        observer.observe(end);
+        }
+        window.addEventListener('scroll', maybeAutoRead, { passive: true });
+        window.addEventListener('pageshow', maybeAutoRead);
+        maybeAutoRead();
     }
 })();
 </script>
