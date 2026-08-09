@@ -6,7 +6,8 @@ issues, the fixes already implemented (and where), gotchas, and the deploy
 workflow. **Read this before doing anything.**
 
 Last updated: 2026-08-09 (session: digest format → flowing story paragraphs,
-renderer heading fixes, regenerated Aug 4-8 digests, DB-copy deploy to VPS).
+renderer heading fixes, regenerated Aug 4-8 digests, DB-copy deploy to VPS,
+digest read/unread tracking shipped to VPS via migration 009).
 
 ---
 
@@ -248,12 +249,21 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   `POST /api/read` (JSON `{type: "rss"|"youtube", date, read}`) — **no auth**
   (matching the public digest pages). `set_digest_read_flag` returns False → 404
   when no digest exists for that date; bad type/date → 400.
-- **Auto-read rule** (JS on `index.html` + `youtube.html`): an IntersectionObserver
-  fires a single `POST /api/read {read: true}` when the bottom of the digest
-  content card becomes visible **and** `window.scrollY > 0` (user actually
-  scrolled), then disconnects. Short digests that fit on screen without
-  scrolling are **NOT** auto-marked. Failures are silent; the manual toggle is
-  the fallback.
+- **Auto-read rule** (JS on `index.html` + `youtube.html`): a `scroll` +
+  `pageshow` listener (`maybeAutoRead`) fires a single `POST /api/read {read: true}`
+  when the digest footer `#digest-end` is at/near the viewport edge **and**
+  `window.scrollY > 0` (user actually scrolled), then detaches. Short digests
+  that fit on screen without scrolling are **NOT** auto-marked. Failures are
+  silent; the manual toggle is the fallback.
+- **Auto-read gotchas already fixed**: (1) the listener is attached whenever the
+  marker + footer exist, **NOT gated on the digest being unread at page load** —
+  otherwise toggling a read digest to unread then scrolling would never fire
+  (only a reload made it work). The live `data-read` guard inside the handler
+  skips already-read digests. (2) A bare IntersectionObserver fires only on
+  intersection *state changes*, so when the footer was already visible at load
+  (tall viewport) it never fired after scrolling — hence the scroll-listener
+  approach. (3) `setReadUI` toggles BOTH light and `dark:` variant classes —
+  omitting the dark ones kept the button green/amber-fixed in dark mode.
 - Tracker (`get_tracker_rows`) shows the **last 30 days**, newest first, one row
   per date with per-type RSS/YouTube flags (None when no digest of that type)
   and links to `/digest/{date}` and `/youtube?date={date}`.
@@ -302,6 +312,11 @@ only (groq/deepseek ignore it).
 - **DB backups on VPS**:
   - `data/aggregator.db.bak-20260808-213533` (before the last migration)
   - `data/aggregator.db.bak-20260809-pre-db-copy` (before the DB-copy deploy)
+  - `data/aggregator.db.bak-20260809-pre-read-flag-migrate` (before migration 009)
+- **Read-flag deploy (2026-08-09)**: normal deploy (NOT a DB-copy) — `git pull` +
+  `docker compose up -d --build` ran `migrate`, applying 009 to the VPS DB and
+  backfilling all 70 daily + 27 YouTube digests to read. DBs are separate per
+  machine; local test toggles are NOT shipped.
 - **Windows → VPS automation**: SSH password auth needs `SSH_ASKPASS` + a temp
   askpass script; see Gotcha #6. There is no SSH key set up.
 
