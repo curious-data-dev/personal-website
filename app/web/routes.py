@@ -15,6 +15,8 @@ from fastapi.templating import Jinja2Templates
 from app.config import settings
 from app.database import (
     get_db,
+    set_digest_read_flag,
+    get_tracker_rows,
     upsert_source,
     update_source,
     delete_source,
@@ -423,6 +425,54 @@ async def history(
                 "selected_year": year,
                 "selected_month": month,
             },
+        )
+    finally:
+        conn.close()
+
+
+@router.post("/api/read")
+async def api_set_read(request: Request):
+    """Set a digest's read/unread flag. No auth (matches public digest pages)."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    digest_type = (body.get("type") or "").strip().lower()
+    date_str = (body.get("date") or "").strip()
+    read = bool(body.get("read"))
+
+    if digest_type not in {"rss", "youtube"}:
+        raise HTTPException(status_code=400, detail="type must be 'rss' or 'youtube'")
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
+    conn = get_db()
+    try:
+        updated = set_digest_read_flag(conn, digest_type, date_str, read)
+        if not updated:
+            raise HTTPException(status_code=404, detail="No digest for this date")
+        conn.commit()
+        return JSONResponse({"ok": True})
+    finally:
+        conn.close()
+
+
+@router.get("/tracker", response_class=HTMLResponse)
+async def tracker(request: Request):
+    """Read/unread tracker for RSS and YouTube digests (last 30 days)."""
+    conn = get_db()
+    try:
+        rows = get_tracker_rows(conn, days=30)
+        for r in rows:
+            r["rss_link"] = f"/digest/{r['date']}" if r["rss_read"] is not None else None
+            r["youtube_link"] = f"/youtube?date={r['date']}" if r["youtube_read"] is not None else None
+        return templates.TemplateResponse(
+            request,
+            "tracker.html",
+            {"rows": rows},
         )
     finally:
         conn.close()
