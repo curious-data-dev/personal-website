@@ -68,6 +68,10 @@
                 <span>📚</span><span class="sidebar-label">History</span>
             </a>
 
+            <a href="/tracker" class="sidebar-link {% if request.url.path.startswith('/tracker') %}sidebar-link-active{% endif %}">
+                <span>📖</span><span class="sidebar-label">Tracker</span>
+            </a>
+
         </nav>
 
         {# Footer group #}
@@ -233,6 +237,9 @@
             </a>
             <a href="/history" class="sidebar-link {% if request.url.path.startswith('/history') %}sidebar-link-active{% endif %}">
                 <span>📚</span><span>History</span>
+            </a>
+            <a href="/tracker" class="sidebar-link {% if request.url.path.startswith('/tracker') %}sidebar-link-active{% endif %}">
+                <span>📖</span><span>Tracker</span>
             </a>
 
             <a href="/settings" class="sidebar-link {% if request.url.path.startswith('/settings') %}sidebar-link-active{% endif %}">

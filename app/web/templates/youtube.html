@@ -198,11 +198,20 @@
 
 {# ── State 4: Digest exists ── #}
 {% else %}
+{% if digest %}
+<div class="flex justify-end mb-4">
+    <button id="youtubeReadToggle" data-type="youtube" data-date="{{ display_date }}" data-read="{{ '1' if digest.read_flag else '0' }}"
+            class="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium border transition-colors
+            {% if digest.read_flag %}bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800{% else %}bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800{% endif %}">
+        {% if digest.read_flag %}✓ Read{% else %}● Unread{% endif %}
+    </button>
+</div>
+{% endif %}
 <article class="rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-8 mb-6">
     <div class="font-serif text-base leading-relaxed text-gray-800 dark:text-gray-200 digest-body">
         {{ digest.summary_text | markdown | safe }}
     </div>
-    <footer class="mt-6 pt-4 border-t border-gray-100 dark:border-slate-800 text-sm text-gray-400 dark:text-slate-500">
+    <footer id="digest-end" class="mt-6 pt-4 border-t border-gray-100 dark:border-slate-800 text-sm text-gray-400 dark:text-slate-500">
         {{ digest.video_count }} videos from {{ digest.channel_count }} channel{{ 's' if digest.channel_count != 1 else '' }}
     </footer>
 </article>
@@ -271,6 +280,48 @@
         row.setAttribute('aria-expanded', String(!isOpen));
         if (icon) icon.textContent = isOpen ? '▸' : '▾';
     };
+})();
+</script>
+
+<script>
+(function() {
+    const toggle = document.getElementById('youtubeReadToggle');
+    if (toggle) {
+        toggle.addEventListener('click', async function() {
+            const next = !(toggle.dataset.read === '1');
+            try {
+                const resp = await fetch('/api/read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: toggle.dataset.type, date: toggle.dataset.date, read: next })
+                });
+                if (!resp.ok) return;
+                toggle.dataset.read = next ? '1' : '0';
+                toggle.classList.toggle('bg-green-50', next);
+                toggle.classList.toggle('text-green-700', next);
+                toggle.classList.toggle('border-green-200', next);
+                toggle.classList.toggle('bg-amber-50', !next);
+                toggle.classList.toggle('text-amber-700', !next);
+                toggle.classList.toggle('border-amber-200', !next);
+                toggle.textContent = next ? '✓ Read' : '● Unread';
+            } catch (e) {}
+        });
+    }
+
+    const end = document.getElementById('digest-end');
+    if (end && toggle && toggle.dataset.read !== '1') {
+        const observer = new IntersectionObserver(function(entries) {
+            if (entries.some(function(e) { return e.isIntersecting && window.scrollY > 0; })) {
+                fetch('/api/read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: toggle.dataset.type, date: toggle.dataset.date, read: true })
+                }).catch(function() {});
+                observer.disconnect();
+            }
+        }, { rootMargin: '0px 0px 40px 0px' });
+        observer.observe(end);
+    }
 })();
 </script>
 

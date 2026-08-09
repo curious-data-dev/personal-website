@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Reading Tracker{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-1">📖 Reading Tracker</h1>
+<p class="text-sm text-gray-500 dark:text-slate-400 mb-6">Last 30 days of digests. Check a box when you've read it.</p>
+
+{% if rows %}
+<div class="overflow-x-auto rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-gray-100 dark:border-slate-800 text-left text-xs uppercase tracking-wider text-gray-400 dark:text-slate-500">
+                <th class="px-4 py-3 font-semibold">Digest Date</th>
+                <th class="px-4 py-3 font-semibold">RSS Read</th>
+                <th class="px-4 py-3 font-semibold">YouTube Read</th>
+                <th class="px-4 py-3 font-semibold">RSS Link</th>
+                <th class="px-4 py-3 font-semibold">YouTube Link</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+            <tr class="border-b border-gray-50 dark:border-slate-800/50">
+                <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-white">{{ r.date }}</td>
+                <td class="px-4 py-2.5">
+                    {% if r.rss_read is not none %}
+                    <input type="checkbox" class="read-toggle w-4 h-4 cursor-pointer"
+                           data-type="rss" data-date="{{ r.date }}" {% if r.rss_read %}checked{% endif %}>
+                    {% else %}
+                    <span class="text-gray-300 dark:text-slate-600">—</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-2.5">
+                    {% if r.youtube_read is not none %}
+                    <input type="checkbox" class="read-toggle w-4 h-4 cursor-pointer"
+                           data-type="youtube" data-date="{{ r.date }}" {% if r.youtube_read %}checked{% endif %}>
+                    {% else %}
+                    <span class="text-gray-300 dark:text-slate-600">—</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-2.5">
+                    {% if r.rss_link %}
+                    <a href="{{ r.rss_link }}" class="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">Open</a>
+                    {% else %}
+                    <span class="text-gray-300 dark:text-slate-600">—</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-2.5">
+                    {% if r.youtube_link %}
+                    <a href="{{ r.youtube_link }}" class="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">Open</a>
+                    {% else %}
+                    <span class="text-gray-300 dark:text-slate-600">—</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+(function() {
+    document.querySelectorAll('.read-toggle').forEach(function(cb) {
+        cb.addEventListener('change', async function() {
+            const body = {
+                type: cb.dataset.type,
+                date: cb.dataset.date,
+                read: cb.checked
+            };
+            try {
+                const resp = await fetch('/api/read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                if (!resp.ok) cb.checked = !cb.checked;
+            } catch (e) {
+                cb.checked = !cb.checked;
+            }
+        });
+    });
+})();
+</script>
+
+{% else %}
+<div class="flex flex-col items-center justify-center py-16 text-center">
+    <div class="text-5xl mb-3">📖</div>
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">No digests in the last 30 days</h3>
+    <p class="text-sm text-gray-500 dark:text-slate-400">Check back once the daily scrape runs.</p>
+</div>
+{% endif %}
+{% endblock %}
