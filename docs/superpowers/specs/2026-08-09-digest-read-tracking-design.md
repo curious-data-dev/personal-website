@@ -53,8 +53,12 @@ Rejected alternatives:
 - `youtube_digests.read_flag INTEGER DEFAULT 0`
 
 Changes in `app/database.py`:
-- Add `read_flag INTEGER DEFAULT 0` to both `CREATE TABLE` statements in
-  `SCHEMA` so fresh databases get the column.
+- Do NOT add `read_flag` to the `CREATE TABLE` statements in `SCHEMA`. SQLite
+  has no `ADD COLUMN IF NOT EXISTS`, so if SCHEMA created the column AND the
+  migration ALTERed it, fresh databases would fail with "duplicate column
+  name". The existing pattern (migrations 001/002/008) keeps migrated columns
+  out of `SCHEMA` — the migration is the single source of truth for column
+  existence. Fresh DBs get the column via migration 009 like existing DBs.
 - `insert_daily_digest()`: add `read_flag = 0` to the
   `ON CONFLICT(date) DO UPDATE SET` clause.
 - `insert_youtube_digest()`: same.
