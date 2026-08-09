@@ -471,6 +471,7 @@ def insert_daily_digest(
                article_count = excluded.article_count,
                source_count = excluded.source_count,
                status = 'generated',
+               read_flag = 0,
                updated_at = CURRENT_TIMESTAMP""",
         (date_str, title, summary_text, article_count, source_count),
     )
@@ -723,6 +724,7 @@ def insert_youtube_digest(
                video_count = excluded.video_count,
                channel_count = excluded.channel_count,
                status = 'generated',
+               read_flag = 0,
                updated_at = CURRENT_TIMESTAMP""",
         (date_str, title, summary_text, video_count, channel_count),
     )

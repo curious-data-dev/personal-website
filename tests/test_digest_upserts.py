@@ -36,3 +36,42 @@ def test_youtube_digest_update_returns_existing_digest_id(isolated_db):
         conn.commit()
     finally:
         conn.close()
+
+
+def _read_flag(conn, table, date_str):
+    return conn.execute(
+        f"SELECT read_flag FROM {table} WHERE date = ?", (date_str,)
+    ).fetchone()[0]
+
+
+def test_rss_regen_resets_read_flag(isolated_db):
+    conn = isolated_db.get_db()
+    try:
+        insert_daily_digest(conn, "2026-06-27", "First", "One", 1, 1)
+        conn.execute("UPDATE daily_digests SET read_flag = 1 WHERE date = '2026-06-27'")
+        conn.commit()
+        insert_daily_digest(conn, "2026-06-27", "Regen", "Two", 2, 2)
+        assert _read_flag(conn, "daily_digests", "2026-06-27") == 0
+    finally:
+        conn.close()
+
+
+def test_youtube_regen_resets_read_flag(isolated_db):
+    conn = isolated_db.get_db()
+    try:
+        insert_youtube_digest(conn, "2026-06-27", "First", "One", 1, 1)
+        conn.execute("UPDATE youtube_digests SET read_flag = 1 WHERE date = '2026-06-27'")
+        conn.commit()
+        insert_youtube_digest(conn, "2026-06-27", "Regen", "Two", 2, 2)
+        assert _read_flag(conn, "youtube_digests", "2026-06-27") == 0
+    finally:
+        conn.close()
+
+
+def test_fresh_insert_read_flag_defaults_unread(isolated_db):
+    conn = isolated_db.get_db()
+    try:
+        insert_daily_digest(conn, "2026-06-28", "First", "One", 1, 1)
+        assert _read_flag(conn, "daily_digests", "2026-06-28") == 0
+    finally:
+        conn.close()
