@@ -6,7 +6,7 @@ Uses raw sqlite3 from stdlib. No ORM. One file. Simple.
 import sqlite3
 import json
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -546,6 +546,43 @@ def get_digest_years(conn: sqlite3.Connection) -> list[int]:
         "SELECT DISTINCT strftime('%Y', date) as year FROM daily_digests ORDER BY year DESC"
     ).fetchall()
     return [int(r["year"]) for r in rows]
+
+
+def set_digest_read_flag(
+    conn: sqlite3.Connection, digest_type: str, date_str: str, read: bool
+) -> bool:
+    """Set the read/unread flag for a digest. Returns False if no digest exists."""
+    table = "daily_digests" if digest_type == "rss" else "youtube_digests"
+    cur = conn.execute(
+        f"UPDATE {table} SET read_flag = ? WHERE date = ?",
+        (1 if read else 0, date_str),
+    )
+    return cur.rowcount > 0
+
+
+def get_tracker_rows(
+    conn: sqlite3.Connection, days: int = 30
+) -> list[dict[str, Any]]:
+    """Return read-flag rows for dates with an RSS or YouTube digest in the
+    last `days` days, newest first. Missing digest types are None."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    cutoff = (datetime.now(ist).date() - timedelta(days=days - 1)).isoformat()
+    rows = conn.execute(
+        """SELECT 'rss' AS type, date, read_flag FROM daily_digests
+           WHERE date >= ?
+           UNION ALL
+           SELECT 'youtube' AS type, date, read_flag FROM youtube_digests
+           WHERE date >= ?""",
+        (cutoff, cutoff),
+    ).fetchall()
+
+    by_date: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        entry = by_date.setdefault(
+            r["date"], {"date": r["date"], "rss_read": None, "youtube_read": None}
+        )
+        entry[f"{r['type']}_read"] = bool(r["read_flag"])
+    return sorted(by_date.values(), key=lambda e: e["date"], reverse=True)
 
 
 # ---------------------------------------------------------------------------
