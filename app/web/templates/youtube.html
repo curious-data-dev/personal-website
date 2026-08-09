@@ -287,6 +287,17 @@
 (function() {
     const toggle = document.getElementById('youtubeReadToggle');
     if (toggle) {
+        function setReadUI(read) {
+            toggle.dataset.read = read ? '1' : '0';
+            toggle.classList.toggle('bg-green-50', read);
+            toggle.classList.toggle('text-green-700', read);
+            toggle.classList.toggle('border-green-200', read);
+            toggle.classList.toggle('bg-amber-50', !read);
+            toggle.classList.toggle('text-amber-700', !read);
+            toggle.classList.toggle('border-amber-200', !read);
+            toggle.textContent = read ? '✓ Read' : '● Unread';
+        }
+
         toggle.addEventListener('click', async function() {
             const next = !(toggle.dataset.read === '1');
             try {
@@ -296,14 +307,7 @@
                     body: JSON.stringify({ type: toggle.dataset.type, date: toggle.dataset.date, read: next })
                 });
                 if (!resp.ok) return;
-                toggle.dataset.read = next ? '1' : '0';
-                toggle.classList.toggle('bg-green-50', next);
-                toggle.classList.toggle('text-green-700', next);
-                toggle.classList.toggle('border-green-200', next);
-                toggle.classList.toggle('bg-amber-50', !next);
-                toggle.classList.toggle('text-amber-700', !next);
-                toggle.classList.toggle('border-amber-200', !next);
-                toggle.textContent = next ? '✓ Read' : '● Unread';
+                setReadUI(next);
             } catch (e) {}
         });
     }
@@ -316,6 +320,8 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ type: toggle.dataset.type, date: toggle.dataset.date, read: true })
+                }).then(function(resp) {
+                    if (resp.ok) setReadUI(true);
                 }).catch(function() {});
                 observer.disconnect();
             }
