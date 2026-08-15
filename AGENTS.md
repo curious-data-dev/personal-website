@@ -5,9 +5,9 @@ left off without re-discovering the codebase. It captures architecture, known
 issues, the fixes already implemented (and where), gotchas, and the deploy
 workflow. **Read this before doing anything.**
 
-Last updated: 2026-08-14 (session: digest story-extraction fix — one story = one block,
-not facet-splitting; layman prose style — zero assumed context; Aug 12 + Aug 14 RSS and
-Aug 8/11/13/14 YouTube digests regenerated LOCALLY ONLY, not deployed to VPS;
+Last updated: 2026-08-15 (session: digest story-extraction fix — one story = one block,
+not facet-splitting; layman prose style — zero assumed context; Aug 11-14 RSS + YouTube
+digests regenerated and DEPLOYED to VPS via DB-copy (commit 7280ac9);
 generate_date_digest.py Unicode-safe console printing).
 
 ---
@@ -314,11 +314,17 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   containing emoji (e.g. "🔎 Anthropic..."). Fixed with a `safe_print` helper
   (`encode('ascii','backslashreplace')` fallback). Running with
   `$env:PYTHONUTF8='1'` also works.
-- **Deploy status (2026-08-14)**: prompt + script change NOT yet committed/
-  pushed; Aug 12 RSS + Aug 14 RSS + Aug 8/11/13/14 YouTube digests regenerated
-  **locally only** (VPS still has the old split format). Regenerating other
-  days (Aug 10/11/13 RSS) will need the same prompt change applied on the
-  machine doing the regeneration.
+- **Deploy status (2026-08-15)**: commit `7280ac9` (one-story-per-block + layman
+  prose prompts, safe_print script fix, .gitignore sidecar files) pushed to
+  GitHub and pulled on the VPS. **DB-copy deploy done 2026-08-15**: VPS
+  containers stopped → VPS DB backed up (`data/aggregator.db.bak-20260815-pre-db-copy`,
+  identical 12,845,056 bytes to local) → local `data/aggregator.db` scp'd over
+  → containers restarted (`up -d`; migrate one-shot no-op). Local and VPS DBs
+  were confirmed identical in counts (640 articles / 75 daily / 30 YouTube)
+  before the swap, so nothing was lost; VPS had no Aug 15 digest yet. Live site
+  verified for Aug 11-14 RSS + YouTube (new format, layman prose, 0 dangling
+  `**`). Aug 10 digest still old format (not regenerated — user asked for days
+  after Aug 10).
 - **Dev-server gotcha (2026-08-14)**: in this harness, starting a new background
   job appears to terminate the previous background job — the uvicorn dev server
   (started as a background job) died each time a digest-regeneration job was
@@ -408,30 +414,29 @@ only (groq/deepseek ignore it).
 - `.env` is gitignored and must stay that way. Watch that `WEB_PASSWORD` isn't
   pushed if `.env` is ever force-added.
 
-## 11. Current Data State (as of 2026-08-14)
+## 11. Current Data State (as of 2026-08-15)
 
-- Local DB: 591 articles, 69+ daily digests, 26 YouTube digests. **Identical DB
-  also on the VPS** (shipped via DB-copy deploy on 2026-08-09) **EXCEPT the
-  digests regenerated locally on 2026-08-14 (below) — NOT yet deployed.**
+- Local DB: 640 articles, 75 daily digests, 30 YouTube digests. **Identical DB
+  now also on the VPS** (DB-copy deploy on 2026-08-15 — see §6.11 deploy
+  status). VPS backup of the pre-copy DB:
+  `data/aggregator.db.bak-20260815-pre-db-copy`.
 - **Aug 4-8 digests regenerated** (2026-08-09) in the flowing-story format:
   Aug 4 (5 articles, 24.4K chars), Aug 5 (7 articles, 27.8K), Aug 6 (6 articles,
   24.7K), Aug 7 (6 articles, 27.3K), Aug 8 (3 articles, 10.8K).
-- **Aug 12 RSS digest regenerated locally (2026-08-14)** with the §6.11 fixed
-  prompt: single-story articles now ONE block each (gold / Tata / asset
-  allocation / cement / FCRA Editor's Pick); Hindu Evening Wrap + Rundown AI
-  stay split as multi-story newsletters. Rendering verified (0 dangling `**`).
-- **Aug 14 RSS digest regenerated locally (2026-08-14)** with the §6.11
-  layman-prose style: every person/org/term introduced on first use
-  ("the Supreme Court, India's highest court", "NEET, the national medical
-  entrance exam", "the trade deficit (the gap between imports and exports)"),
-  legal/financial jargon replaced with everyday words, consequences in human
-  terms; NEET scandal, drug-law reform, and trade stories each ONE block.
-  Rendering verified (0 dangling `**`) on the local server.
-- **Aug 8/11/13/14 YouTube digests regenerated locally (2026-08-14)** with the
-  same fixed prompt: SK Hynix video 7 blocks → 1, US-debt video 5 → 1, Iran
-  video 4 → 1, wealth video 5 → 1. Jul 31 YouTube digest still old format.
-- All 4 digests (Aug 4-8) verified rendering on the live site (no dangling
-  `**`, proper bold headings, heading/body gap) both locally and on the VPS.
+- **Aug 11-14 digests (RSS + YouTube) regenerated (2026-08-15)** with the
+  §6.11 prompts (one story = one block + layman prose, zero assumed context):
+  verified locally AND on the live VPS site — 0 dangling `**`, balanced tags,
+  single-story articles in ONE block each, every term glossed on first use
+  ("the Supreme Court of India, the country's highest judicial body", "NEET
+  UG—the national entrance exam for medical colleges in India", "the Lok Sabha,
+  the lower house of India's Parliament", "a global tender—a formal invitation
+  for companies to bid on a contract"). YouTube digests: SK Hynix 1 block,
+  US-debt 1 block, Iran 1 block.
+- **Aug 10 digest is still the old format** (facet-splitting + dense prose) —
+  NOT regenerated (user asked for days after Aug 10). Regenerate with
+  `scripts/generate_date_digest.py --date 2026-08-10` if desired.
+- **Aug 8 YouTube digest** regenerated (2026-08-14) with the one-block fix;
+  **Jul 31 YouTube digest** still old format.
 - July 31 has 1 RSS + 1 YouTube digest. Some older June/July articles are
   `summarized` but not linked to digests (pre-existing data inconsistency
   outside the stale window — left alone).
