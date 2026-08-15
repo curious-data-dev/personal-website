@@ -5,7 +5,7 @@ CRITICAL — VERBATIM STORIES: Keep every story block's text EXACTLY as given be
 CRITICAL — COVERAGE: Every story block below MUST appear in your output exactly once, verbatim. You may group them under sections, but every single block must be present unchanged.
 
 GOLDEN RULES:
-- Write for a non-specialist reader; gloss specialist terms on first use.
+- Write for a reader with ZERO background (like a friend hearing the news for the first time): in Today's Highlights and the Key Takeaway, gloss specialist terms and acronyms on first use and avoid assumed context. The story blocks below are already written this way — keep them verbatim.
 - Do NOT invent facts. Neutral, objective tone.
 - Separate consecutive story blocks with a blank line (they are paragraphs, not list items).
 

@@ -6,6 +6,8 @@ venv/
 .env
 .DS_Store
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/backups/
 nul
 

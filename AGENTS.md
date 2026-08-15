@@ -5,9 +5,10 @@ left off without re-discovering the codebase. It captures architecture, known
 issues, the fixes already implemented (and where), gotchas, and the deploy
 workflow. **Read this before doing anything.**
 
-Last updated: 2026-08-09 (session: digest format → flowing story paragraphs,
-renderer heading fixes, regenerated Aug 4-8 digests, DB-copy deploy to VPS,
-digest read/unread tracking shipped to VPS via migration 009).
+Last updated: 2026-08-14 (session: digest story-extraction fix — one story = one block,
+not facet-splitting; layman prose style — zero assumed context; Aug 12 + Aug 14 RSS and
+Aug 8/11/13/14 YouTube digests regenerated LOCALLY ONLY, not deployed to VPS;
+generate_date_digest.py Unicode-safe console printing).
 
 ---
 
@@ -271,6 +272,58 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   checkboxes in the tracker table (both write the same flag via `/api/read`).
 - Sidebar link to `/tracker` added in `base.html` (desktop + mobile drawer).
 
+### 6.11 Digest story extraction: one story split into multiple headings ✅ FIXED
+- **Problem**: `digest_story_extract.md` defined a story as "any self-contained
+  event or development with its own who/what/when", so a SINGLE-article story
+  with several facets got split into multiple `**headline**` blocks. E.g. the
+  Aug 12 Finshots article about London tokenizing gold → 3 blocks (FCA
+  framework / HSBC Evolve / PGI framework); the Tata leadership article → 3;
+  the asset-allocation study → 2; the cement-sector review → 3; the windfall-tax
+  explainer on Aug 10 → 6. Same pattern on Aug 10/11/12/13/14.
+- **Fix** (`Main Architechture/prompts/digest_story_extract.md`): added STEP 0 —
+  classify the article as **ONE STORY** (single narrative; multiple players/
+  initiatives/responses are facets of the same subject) vs **ROUNDUP** (genuinely
+  independent items, e.g. "Evening Wrap"/"Daily Brief"). ONE STORY → exactly ONE
+  block with one headline and a longer flowing paragraph (4-8 sentences is
+  normal; splitting to keep paragraphs short is explicitly forbidden). ROUNDUP →
+  one block per independent item as before. Rule of thumb: "WHEN IN DOUBT, MERGE".
+- **Result (Aug 12, regenerated)**: gold → 1 block (~1,260 chars, 6 sentences),
+  Tata → 1 block, asset allocation → 1 block, cement → 1 block, FCRA Editor's
+  Pick → 1 block; Hindu Evening Wrap + Rundown AI still split correctly
+  (multi-story newsletters). Verified rendering: 0 dangling `**`, balanced `<p>`.
+- **YouTube digests share the fix automatically**: `_generate_youtube_daily_digest`
+  (`app/summarizer/service.py` ~line 525) calls the SAME `digest_story_extract`
+  prompt, so any YouTube digest generated after the edit is fixed too (the old
+  `youtube_digest.md` single-pass prompt is unused, same as `daily_digest.md`).
+  Stored YouTube digests kept the old split until regenerated (2026-08-14):
+  Aug 14 SK Hynix video was split into 7 blocks → now 1; Aug 13 US-debt video
+  5 → 1; Aug 11 Iran video 4 → 1; Aug 8 wealth video 5 → 1. Jul 31 YouTube
+  digest still shows the old split (not regenerated).
+- **Layman prose style (2026-08-14)**: `digest_story_extract.md` gained an
+  "EXPLAIN LIKE THE READER KNOWS NOTHING" rule — every person, organization,
+  acronym, law, exam, and technical term must be introduced on first use with a
+  short plain explanation (e.g. "the Supreme Court, India's highest court",
+  "NEET, the national medical entrance exam", "the trade deficit (the gap
+  between what a country earns from exports and spends on imports)"), dense
+  legal/financial phrasing is replaced with everyday words, and consequences
+  are stated in human terms. Background clarifications may come from general
+  knowledge only — never invented specifics. `digest_merge.md` golden rules
+  updated to match (Highlights/Key Takeaway in the same plain style).
+- **Gotcha**: `scripts/generate_date_digest.py` used `print` in its
+  `on_progress` lambda → crashed with `UnicodeEncodeError` (cp1252) on titles
+  containing emoji (e.g. "🔎 Anthropic..."). Fixed with a `safe_print` helper
+  (`encode('ascii','backslashreplace')` fallback). Running with
+  `$env:PYTHONUTF8='1'` also works.
+- **Deploy status (2026-08-14)**: prompt + script change NOT yet committed/
+  pushed; Aug 12 RSS + Aug 14 RSS + Aug 8/11/13/14 YouTube digests regenerated
+  **locally only** (VPS still has the old split format). Regenerating other
+  days (Aug 10/11/13 RSS) will need the same prompt change applied on the
+  machine doing the regeneration.
+- **Dev-server gotcha (2026-08-14)**: in this harness, starting a new background
+  job appears to terminate the previous background job — the uvicorn dev server
+  (started as a background job) died each time a digest-regeneration job was
+  started afterwards. Restart the server after any background regeneration.
+
 ## 7. Environment / Config (app/config.py)
 
 Key settings (env-overridable via `.env`):
@@ -355,17 +408,30 @@ only (groq/deepseek ignore it).
 - `.env` is gitignored and must stay that way. Watch that `WEB_PASSWORD` isn't
   pushed if `.env` is ever force-added.
 
-## 11. Current Data State (as of 2026-08-09)
+## 11. Current Data State (as of 2026-08-14)
 
-- Local DB: 591 articles, 69 daily digests, 26 YouTube digests. **Identical DB
-  now also on the VPS** (shipped via DB-copy deploy on 2026-08-09 — see §8).
-- **Aug 4-8 digests regenerated** (2026-08-09) in the current flowing-story
-  format: Aug 4 (5 articles, 24.4K chars), Aug 5 (7 articles, 27.8K), Aug 6
-  (6 articles, 24.7K), Aug 7 (6 articles, 27.3K), Aug 8 (3 articles, 10.8K).
-  Aug 8's digest previously had only 1 article; regeneration picked up all 3
-  summarized articles.
-- All 4 digests verified rendering on the live site (no dangling `**`, proper
-  bold headings, heading/body gap) both locally and on the VPS.
+- Local DB: 591 articles, 69+ daily digests, 26 YouTube digests. **Identical DB
+  also on the VPS** (shipped via DB-copy deploy on 2026-08-09) **EXCEPT the
+  digests regenerated locally on 2026-08-14 (below) — NOT yet deployed.**
+- **Aug 4-8 digests regenerated** (2026-08-09) in the flowing-story format:
+  Aug 4 (5 articles, 24.4K chars), Aug 5 (7 articles, 27.8K), Aug 6 (6 articles,
+  24.7K), Aug 7 (6 articles, 27.3K), Aug 8 (3 articles, 10.8K).
+- **Aug 12 RSS digest regenerated locally (2026-08-14)** with the §6.11 fixed
+  prompt: single-story articles now ONE block each (gold / Tata / asset
+  allocation / cement / FCRA Editor's Pick); Hindu Evening Wrap + Rundown AI
+  stay split as multi-story newsletters. Rendering verified (0 dangling `**`).
+- **Aug 14 RSS digest regenerated locally (2026-08-14)** with the §6.11
+  layman-prose style: every person/org/term introduced on first use
+  ("the Supreme Court, India's highest court", "NEET, the national medical
+  entrance exam", "the trade deficit (the gap between imports and exports)"),
+  legal/financial jargon replaced with everyday words, consequences in human
+  terms; NEET scandal, drug-law reform, and trade stories each ONE block.
+  Rendering verified (0 dangling `**`) on the local server.
+- **Aug 8/11/13/14 YouTube digests regenerated locally (2026-08-14)** with the
+  same fixed prompt: SK Hynix video 7 blocks → 1, US-debt video 5 → 1, Iran
+  video 4 → 1, wealth video 5 → 1. Jul 31 YouTube digest still old format.
+- All 4 digests (Aug 4-8) verified rendering on the live site (no dangling
+  `**`, proper bold headings, heading/body gap) both locally and on the VPS.
 - July 31 has 1 RSS + 1 YouTube digest. Some older June/July articles are
   `summarized` but not linked to digests (pre-existing data inconsistency
   outside the stale window — left alone).

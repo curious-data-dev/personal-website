@@ -13,6 +13,14 @@ from app.database import get_db
 from app.summarizer.service import _generate_daily_digest, _generate_youtube_daily_digest
 
 
+def safe_print(msg: str) -> None:
+    """Print without crashing on non-cp1252 characters (emoji in titles etc.)."""
+    try:
+        print("  ", msg)
+    except UnicodeEncodeError:
+        print("  ", msg.encode("ascii", "backslashreplace").decode("ascii"))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", default="2026-07-31")
@@ -37,13 +45,13 @@ def main() -> None:
 
         if rss_articles:
             print("Generating RSS digest...")
-            _generate_daily_digest(conn, args.date, on_progress=lambda m: print("  ", m))
+            _generate_daily_digest(conn, args.date, on_progress=safe_print)
             conn.commit()
             print("RSS digest done.")
 
         if yt_articles and not args.skip_youtube:
             print("Generating YouTube digest...")
-            _generate_youtube_daily_digest(conn, args.date, on_progress=lambda m: print("  ", m))
+            _generate_youtube_daily_digest(conn, args.date, on_progress=safe_print)
             conn.commit()
             print("YouTube digest done.")
 
