@@ -25,6 +25,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", default="2026-07-31")
     parser.add_argument("--skip-youtube", action="store_true")
+    parser.add_argument("--skip-rss", action="store_true")
     args = parser.parse_args()
 
     conn = get_db()
@@ -43,7 +44,7 @@ def main() -> None:
         ).fetchone()["n"]
         print(f"RSS articles for {args.date}: {rss_articles} | YouTube: {yt_articles}")
 
-        if rss_articles:
+        if rss_articles and not args.skip_rss:
             print("Generating RSS digest...")
             _generate_daily_digest(conn, args.date, on_progress=safe_print)
             conn.commit()

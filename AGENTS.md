@@ -5,10 +5,12 @@ left off without re-discovering the codebase. It captures architecture, known
 issues, the fixes already implemented (and where), gotchas, and the deploy
 workflow. **Read this before doing anything.**
 
-Last updated: 2026-08-15 (session: digest story-extraction fix — one story = one block,
-not facet-splitting; layman prose style — zero assumed context; Aug 11-14 RSS + YouTube
-digests regenerated and DEPLOYED to VPS via DB-copy (commit 7280ac9);
-generate_date_digest.py Unicode-safe console printing).
+Last updated: 2026-08-16 (session: YouTube per-video article-level summaries
+regenerated in the detailed extract format via scripts/regen_youtube_article_summaries.py;
+digests left untouched; generate_date_digest.py gained --skip-rss). Prior session
+2026-08-15: digest story-extraction fix — one story = one block, not facet-splitting;
+layman prose style — zero assumed context; Aug 11-14 RSS + YouTube digests regenerated
+and DEPLOYED to VPS via DB-copy (commit 7280ac9).
 
 ---
 
@@ -60,6 +62,10 @@ Main Architechture/prompts/   # ACTUAL prompt templates used (see §5).
   single_summary.md, reduce_synthesis.md, chunk_summary.md, ...
 scripts/                 # Dev/diagnostic helpers (committed).
   generate_date_digest.py  # regen digest for a date (RSS+YT) — live LLM.
+                           # --skip-rss / --skip-youtube for one side only.
+  regen_youtube_article_summaries.py  # regen per-video summary_text (footnotes/
+                           # article page) with the detailed YouTube extract
+                           # prompt — does NOT touch the digest. --since/--date.
   discover_date_articles.py
   run_summarization_now.py
   validate_digest_tokens.py
@@ -108,13 +114,21 @@ digests keep their stored text.
   prose covering what happened / why / relevance / what's next, no labels, no
   bullets), each ending with `[REF n]`. Guarantees full coverage (flash-lite was
   dropping ~8/40 stories when asked to enumerate everything in one pass).
+- `youtube_digest_story_extract.md` — YouTube-specific variant of the above
+  (Aug 2026). Same block structure (`**headline**` + flowing prose + `[REF n]`,
+  one-story-per-block, layman glosses) but demands a DETAILED write-up per
+  video — 8-14 sentences (may split into 2-3 short paragraphs under the SAME
+  headline), covering thesis + what happened + reasoning/evidence + why it
+  matters + implications, with every number/name/date the creator cites. The
+  daily YouTube digest has only a handful of videos, so each block can be much
+  deeper than an RSS article's. Used only by `_generate_youtube_daily_digest`.
 - `digest_merge.md` — merge prompt. Takes the pre-extracted story blocks and
   ONLY groups them into `##` sections + writes Highlights/Key Takeaway. Keeps
   blocks verbatim (model must NOT reword/drop them). Consecutive blocks are
   separated by a blank line (paragraphs, NOT list items).
 - `youtube_digest.md` — YouTube digest. Same two-phase extract→merge flow
-  (uses digest_story_extract + digest_merge), topics attributed to creators
-  (claim + reasoning + implication).
+  (uses youtube_digest_story_extract + digest_merge), topics attributed to
+  creators (claim + reasoning + implication).
 - `condense_summary.md` — ~500-word condensation per article (raised from
   150-200 words so the digest model sees richer source material), preserving all
   names/numbers/dates. Feeds the digest prompt.
@@ -292,13 +306,26 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   Pick → 1 block; Hindu Evening Wrap + Rundown AI still split correctly
   (multi-story newsletters). Verified rendering: 0 dangling `**`, balanced `<p>`.
 - **YouTube digests share the fix automatically**: `_generate_youtube_daily_digest`
-  (`app/summarizer/service.py` ~line 525) calls the SAME `digest_story_extract`
-  prompt, so any YouTube digest generated after the edit is fixed too (the old
-  `youtube_digest.md` single-pass prompt is unused, same as `daily_digest.md`).
-  Stored YouTube digests kept the old split until regenerated (2026-08-14):
-  Aug 14 SK Hynix video was split into 7 blocks → now 1; Aug 13 US-debt video
-  5 → 1; Aug 11 Iran video 4 → 1; Aug 8 wealth video 5 → 1. Jul 31 YouTube
-  digest still shows the old split (not regenerated).
+  (`app/summarizer/service.py` ~line 525) previously called the SAME
+  `digest_story_extract` prompt, so YouTube digests generated after the edit
+  were fixed too (the old `youtube_digest.md` single-pass prompt is unused,
+  same as `daily_digest.md`). **Since 2026-08-15 (session: YouTube detailed
+  summaries) YouTube uses its OWN `youtube_digest_story_extract.md`** — a
+  variant of `digest_story_extract.md` with the same block structure
+  (one-story-per-block, `**headline**` + flowing prose + `[REF n]`, layman
+  glosses) but demanding a DETAILED write-up per video: 8-14 sentences
+  (optionally 2-3 short paragraphs under the SAME headline), covering thesis +
+  what happened + reasoning/evidence + why it matters + implications, keeping
+  every number/name/date the creator cites. The RSS digest must stay compact
+  (40+ articles/day); a YouTube digest has only a handful of videos, so each
+  block is much deeper. Wiring: `_get_digest_extract_prompt(is_youtube=True)`
+  (`app/summarizer/service.py`) picks the YouTube prompt and falls back to the
+  shared RSS one if the file is missing. **Old digests keep their stored text —
+  regenerate to see the effect.** Stored YouTube digests kept the old split
+  until regenerated (2026-08-14): Aug 14 SK Hynix video was split into 7 blocks
+  → now 1; Aug 13 US-debt video 5 → 1; Aug 11 Iran video 4 → 1; Aug 8 wealth
+  video 5 → 1. Jul 31 YouTube digest still shows the old split (not
+  regenerated).
 - **Layman prose style (2026-08-14)**: `digest_story_extract.md` gained an
   "EXPLAIN LIKE THE READER KNOWS NOTHING" rule — every person, organization,
   acronym, law, exam, and technical term must be introduced on first use with a
@@ -432,6 +459,19 @@ only (groq/deepseek ignore it).
   the lower house of India's Parliament", "a global tender—a formal invitation
   for companies to bid on a contract"). YouTube digests: SK Hynix 1 block,
   US-debt 1 block, Iran 1 block.
+- **Aug 11/13/14/15 YouTube digests regenerated AGAIN (2026-08-16)** with the
+  detailed `youtube_digest_story_extract.md` prompt (same extract→merge flow).
+- **Per-video article-level summaries (2026-08-16)**: the 6 YouTube videos
+  after Aug 10 (ids 616, 631, 640, 638, 639, 646 — Aug 11/13/14/15) had their
+  stored `summary_text` REGENERATED as detailed story write-ups (bold headline
+  + flowing prose, `[REF n]` tags stripped) via
+  `scripts/regen_youtube_article_summaries.py --since 2026-08-11`. This is the
+  text shown in the collapsible "Videos in this digest" footnotes and on the
+  video's `/article/{id}` page — it REPLACED the old youtube_summary.md
+  structured format (Main Argument / Supporting Points / Conclusions / Key
+  Takeaways). The daily digest texts were NOT touched (verified: byte-lengths
+  unchanged). Condensed summaries were nulled for those videos, so the next
+  digest regeneration will re-condense from the new summaries.
 - **Aug 10 digest is still the old format** (facet-splitting + dense prose) —
   NOT regenerated (user asked for days after Aug 10). Regenerate with
   `scripts/generate_date_digest.py --date 2026-08-10` if desired.

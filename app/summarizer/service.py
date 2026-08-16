@@ -522,7 +522,7 @@ def _generate_youtube_daily_digest(
             on_progress(f"Extracting topics from video {i}/{len(videos)}: {v['title'][:50]}")
         try:
             chunk = call_llm(
-                prompt_manager.get_prompt("digest_story_extract").format(
+                _get_digest_extract_prompt(is_youtube=True).format(
                     ref_num=i,
                     summary=_get_condensed_summary(conn, v),
                 ),
@@ -601,6 +601,21 @@ def _generate_youtube_daily_digest(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _get_digest_extract_prompt(is_youtube: bool = False) -> str:
+    """Story-extraction prompt for digest Phase 1.
+
+    YouTube uses its own more detailed variant (youtube_digest_story_extract)
+    because a YouTube digest covers only a handful of videos a day, so each
+    video's block can be written much more thoroughly than an RSS article's.
+    Falls back to the shared RSS prompt if the YouTube file is missing.
+    """
+    if is_youtube:
+        youtube_prompt = prompt_manager.get_prompt("youtube_digest_story_extract")
+        if youtube_prompt:
+            return youtube_prompt
+    return prompt_manager.get_prompt("digest_story_extract")
 
 
 def _today_ist_str() -> str:
