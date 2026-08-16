@@ -7,10 +7,11 @@ workflow. **Read this before doing anything.**
 
 Last updated: 2026-08-16 (session: YouTube per-video article-level summaries
 regenerated in the detailed extract format via scripts/regen_youtube_article_summaries.py;
-digests left untouched; generate_date_digest.py gained --skip-rss). Prior session
-2026-08-15: digest story-extraction fix — one story = one block, not facet-splitting;
-layman prose style — zero assumed context; Aug 11-14 RSS + YouTube digests regenerated
-and DEPLOYED to VPS via DB-copy (commit 7280ac9).
+digests left untouched; generate_date_digest.py gained --skip-rss; code commit
+61cd436 pushed + pulled on VPS; DB-copy deploy 2026-08-16 — see §11). Prior
+session 2026-08-15: digest story-extraction fix — one story = one block, not
+facet-splitting; layman prose style — zero assumed context; Aug 11-14 RSS +
+YouTube digests regenerated and DEPLOYED to VPS via DB-copy (commit 7280ac9).
 
 ---
 
@@ -461,6 +462,22 @@ only (groq/deepseek ignore it).
   US-debt 1 block, Iran 1 block.
 - **Aug 11/13/14/15 YouTube digests regenerated AGAIN (2026-08-16)** with the
   detailed `youtube_digest_story_extract.md` prompt (same extract→merge flow).
+- **Deploy status (2026-08-16)**: code commit `61cd436` (detailed YouTube
+  extract prompt + regen script + `--skip-rss` flag) pushed to GitHub and
+  pulled on the VPS; `docker compose up -d --build` (migrate no-op). **DB-copy
+  deploy done 2026-08-16**: containers stopped → VPS DB backed up
+  (`data/aggregator.db.bak-20260816-pre-db-copy`, 12,996,608 bytes) → local
+  snapshot (created via `VACUUM INTO` while the local server ran) scp'd over as
+  `data/aggregator.db` → containers restarted. Before the swap both DBs were
+  verified identical in counts (646 articles / 407 rss / 239 youtube / 640
+  summarized; 77 daily / 31 YouTube digests; same digest dates Aug 15+16 daily,
+  Aug 15 YouTube) so nothing was lost — the local copy adds the detailed
+  per-video summaries + new-format digests. Live site verified: `/health` ok,
+  `/youtube?date=2026-08-14` and `/article/639` render the new detailed
+  summaries. NOTE: local and VPS both had Aug 15/16 digests (VPS pipeline ran
+  08:00 IST Aug 16; local pipeline was triggered from the GUI after the dev
+  server started); the swap replaced the VPS's old-format versions with the
+  local detailed ones.
 - **Per-video article-level summaries (2026-08-16)**: the 6 YouTube videos
   after Aug 10 (ids 616, 631, 640, 638, 639, 646 — Aug 11/13/14/15) had their
   stored `summary_text` REGENERATED as detailed story write-ups (bold headline
