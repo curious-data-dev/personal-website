@@ -8,12 +8,19 @@ Amazon silently drops the attachment.
 
 import logging
 import smtplib
+import ssl
 from email.message import EmailMessage
 from pathlib import Path
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Gmail's implicit-SSL port (465) is blocked on the VPS network, while the
+# STARTTLS submission port (587) works over IPv4. Keep this in sync with that
+# constraint; see AGENTS.md §6.12 / §8.
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
 
 
 def send_kindle_epub(subject: str, epub_path: str | Path, recipient: str | None = None) -> bool:
@@ -47,7 +54,10 @@ def send_kindle_epub(subject: str, epub_path: str | Path, recipient: str | None 
             filename=epub_path.name,
         )
 
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60) as server:
+            server.ehlo()
+            server.starttls(context=ssl.create_default_context())
+            server.ehlo()
             server.login(settings.gmail_user, settings.gmail_app_password)
             server.send_message(msg)
 

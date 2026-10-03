@@ -401,9 +401,11 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   `render_markdown` as the web pages, wrapped in `<article>` + `<footer>` so the
   converter extracts exactly the reading card (no sidebar/TOC chrome).
 - **Email**: `app/kindle/emailer.py` sends one EPUB per email via Gmail SMTP
-  (`smtp.gmail.com:465`), `application/epub+zip`, from `gmail_user`. **The
-  sending Gmail address must be on Amazon's Approved Personal Document E-mail
-  List** for the Kindle account or Amazon drops it silently.
+  **`smtp.gmail.com:587` + STARTTLS** (port 465/implicit-SSL is BLOCKED from
+  the VPS — IPv4:465 times out and IPv6 has no route; 587 works), as
+  `application/epub+zip`, from `gmail_user`. **The sending Gmail address must be
+  on Amazon's Approved Personal Document E-mail List** for the Kindle account or
+  Amazon drops it silently.
 - **Hook**: `app/main.py` Phase 5 runs `send_digests_to_kindle(
   regenerated=summary_stats["digests_regenerated"])` in its OWN try/except so a
   Kindle failure never fails the daily DAG. `run_summarization()` now returns
