@@ -6,27 +6,29 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # LLM
     gemini_api_key: str = ""
-    groq_api_key: str = ""
     deepseek_api_key: str = ""
-    llm_provider: str = "gemini"  # "gemini", "groq", or "deepseek"
-    gemini_model: str = "gemma-4-31b-it"  # Model name for Gemini (e.g. gemma-4-31b-it, gemini-2.5-flash)
-    # Model for the condensation step only. gemma-4-31b-it is a thinking model
-    # that burns its output budget on internal reasoning, so short-output tasks
-    # like condensation frequently return empty responses or 504s. Use a fast
-    # non-thinking model here; the heavier thinking model stays for article
-    # summaries and the daily digest.
+    llm_provider: str = "gemini"  # primary provider: "gemini" or "deepseek"
+    # One Gemini model for everything (summary, condense, digest). 3.1 flash-lite
+    # is non-thinking, fast, and has a 250K TPM budget — unlike the old thinking
+    # model (gemma-4-31b-it) whose 16K TPM wall caused frequent failures and
+    # paid DeepSeek fallbacks.
+    gemini_model: str = "gemini-3.1-flash-lite"
     gemini_condense_model: str = "gemini-3.1-flash-lite"
-    # Model for daily/youtube digest generation. A digest is ONE LLM call that
-    # must render every story of the day, so it needs a large output budget.
-    # gemini-3.1-flash-lite is fast and non-thinking with a 64K output limit
-    # (vs gemma-4-31b-it which burns output on reasoning), so it can produce
-    # long, detailed digests without truncation.
     gemini_digest_model: str = "gemini-3.1-flash-lite"
 
-    # gemma-4-31b-it is a thinking model: it spends output tokens on internal
-    # reasoning BEFORE producing the answer. A 4096-token output budget gets
-    # fully consumed by reasoning (empty responses ~2/3 of the time), so we
-    # raise the default to leave room for reasoning + the final answer.
+    # Gemini free-tier pacing, kept under the real limits (15 RPM / 250K TPM /
+    # 500 RPD). Enforced by a SQLite-backed limiter shared by the app and worker
+    # processes so they never collectively exceed the quota. 0 disables a limit.
+    gemini_rpm_limit: int = 14
+    gemini_tpm_limit: int = 230000
+    gemini_rpd_limit: int = 480
+
+    # DeepSeek is the paid last-resort fallback. 0 = no limit; set an RPD cap to
+    # bound cost (exceeding it fails the call instead of spending more).
+    deepseek_rpm_limit: int = 0
+    deepseek_tpm_limit: int = 0
+    deepseek_rpd_limit: int = 0
+
     llm_max_output_tokens: int = 8192
     # Output cap for the single daily/youtube digest call. 32768 tokens is ~4x
     # the old cap and matches gemini-3.1-flash-lite's generous limit, giving

@@ -34,6 +34,21 @@ def test_scheduled_run_uses_only_active_unarchived_sources(isolated_db):
         conn.close()
 
 
+def test_claim_run_is_exclusive(isolated_db):
+    """A run can be claimed once; a second claimer (worker) must fail.
+
+    This guards against the app thread and the worker executing the same run.
+    """
+    conn = isolated_db.get_db()
+    try:
+        _source(conn, "Active", "active-feed")
+        run_id = isolated_db.create_run(conn, "scheduled")
+        assert isolated_db.claim_run(conn, run_id, "app", 60) is True
+        assert isolated_db.claim_run(conn, run_id, "worker", 60) is False
+    finally:
+        conn.close()
+
+
 def test_archive_preserves_articles(isolated_db):
     conn = isolated_db.get_db()
     try:

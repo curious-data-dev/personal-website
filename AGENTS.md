@@ -5,7 +5,11 @@ left off without re-discovering the codebase. It captures architecture, known
 issues, the fixes already implemented (and where), gotchas, and the deploy
 workflow. **Read this before doing anything.**
 
-Last updated: 2026-10-03 (session: **Kindle EPUB delivery** — after the daily
+Last updated: 2026-10-03 (session 2: **LLM provider overhaul** — one
+`gemini-3.1-flash-lite` model for everything, Groq removed, SQLite-backed
+shared RPM/TPM/RPD limiter across app+worker, `_last_provider`/usage
+instrumentation, run-race fix, validated **0% DeepSeek fallback** — see §6.13.
+Session 1: **Kindle EPUB delivery** — after the daily
 DAG, export yesterday's digest (RSS + YouTube) to HTML → EPUB and email it to
 the Kindle address; older regenerated digests are re-sent with an "(Updated
 <date>)" suffix; today's digest is never sent. New `app/kindle/` package,
@@ -424,15 +428,57 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   succeeded to `psh1021_m3QS7u@kindle.com`; repeat send skipped as `unchanged`;
   refreshed naming verified; full suite 109 passed.
 
+### 6.13 LLM provider overhaul: one Gemini model + shared rate limiting ✅ DONE (2026-10-03)
+- **Problem**: article summaries used the thinking model `gemma-4-31b-it`, whose
+  free-tier **TPM is only 16K** and which frequently returned `500 INTERNAL` /
+  empty responses / 30-100s latencies. The digest/condense model
+  `gemini-3.1-flash-lite` kept hitting its **15 RPM** cap. The old limiter
+  tracked only input tokens against a single 200K budget and enforced **no RPM**,
+  so both models were throttled constantly. The fallback chain was
+  `gemini → deepseek → groq` — i.e. **paid DeepSeek before free Groq** — so every
+  throttle cost money. (`_last_provider = ...` was also a local assignment, so
+  `articles.llm_provider` was always blank and the problem was invisible.)
+- **Fix**:
+  - `gemini_model = "gemini-3.1-flash-lite"` is now used for **everything**
+    (summary, condense, digest). No more thinking model / gemma.
+  - **Groq removed entirely**: `_ALL_PROVIDERS = ["gemini", "deepseek"]`,
+    `_call_groq` deleted, `groq` dropped from `requirements.txt`. From primary
+    `gemini` the chain is gemini → deepseek (paid last resort).
+  - New **`ProviderRateLimiter`** in `app/summarizer/llm.py`: SQLite-backed
+    sliding window over the `llm_rate_events` table, enforcing **RPM + TPM +
+    RPD**, shared across the app and worker processes. Reservation = input tokens
+    + `max_tokens` (output counted). Limits: `gemini_rpm_limit=14`,
+    `gemini_tpm_limit=230000`, `gemini_rpd_limit=480`. Daily quota exhaustion
+    raises `RateLimitExhausted` (no wait) → fall back.
+  - A 429 that slips past the limiter makes `_call_with_retry` wait
+    `RATE_LIMIT_BACKOFF` (60s) and retry Gemini before ever falling back.
+  - `global _last_provider` fixed; every call outcome is now recorded in
+    **`llm_usage_events`** (provider/model/event/tokens/waited/detail) so the
+    fallback rate is queryable via `get_llm_usage_breakdown()`. Migration
+    `011_llm_rate_and_usage.sql` creates `llm_rate_events` + `llm_usage_events`.
+  - **Run-race fix**: `claim_run()` in `app/database.py` + `/api/runs` now claims
+    the run before executing, so the app thread and worker can't both run it.
+- **Validation** (`scripts/validate_llm_limits.py`; real API against a DB copy):
+  - RSS 2026-10-01, Gemini-only: 15 calls, 79s, **0 fallbacks — PASS**.
+  - RSS 2026-10-01, DeepSeek enabled: 15 gemini / 0 deepseek (**0.0% fallback**).
+  - YouTube 2026-09-28, Gemini-only: 2 calls, 10s, 0 fallbacks — PASS.
+  - Full suite **114 passed**.
+- **Runtime note**: paced at ≤14 RPM, a busy day takes a few extra minutes —
+  fine for the overnight run. DeepSeek is now a genuine last resort.
+
 ## 7. Environment / Config (app/config.py)
 
 Key settings (env-overridable via `.env`):
-- `gemini_model = gemma-4-31b-it` (thinking model — for article summaries)
-- `gemini_condense_model = gemini-3.1-flash-lite` (non-thinking — for condensation)
-- `gemini_digest_model = gemini-3.1-flash-lite` (non-thinking — for the daily/youtube digest)
+- `gemini_model = gemini-3.1-flash-lite` (used for EVERYTHING — summary,
+  condense, digest; see §6.13)
+- `gemini_condense_model = gemini-3.1-flash-lite`
+- `gemini_digest_model = gemini-3.1-flash-lite`
+- `gemini_rpm_limit = 14`, `gemini_tpm_limit = 230000`, `gemini_rpd_limit = 480`
+  (shared SQLite limiter; 0 disables a dimension). DeepSeek limits default to 0.
 - `llm_max_output_tokens = 8192` (article summaries)
 - `llm_digest_max_output_tokens = 32768` (single digest call — ~50-article headroom)
-- `llm_input_tokens_per_min = 200000`, `rate_limit_window_seconds = 60`
+- `llm_input_tokens_per_min = 200000` (now only caps the reduce-grouping size),
+  `rate_limit_window_seconds = 60`
 - `lookback_hours = 96`, `stale_digest_window_days = 7`
 - `condense_target_chars = 3000` (~500 words; also skip-if-short threshold + fallback),
   `max_article_chars = 15000`, `chunk_size = 4000`
@@ -442,9 +488,10 @@ Key settings (env-overridable via `.env`):
   `kindle_export_dir = "./data/kindle_exports"` (see §6.12). Sent from
   `gmail_user` using `gmail_app_password`.
 
-Providers fallback chain: `_ALL_PROVIDERS = ["deepseek", "groq", "gemini"]`;
-primary = `llm_provider`. `model=` override in `call_llm` is applied to Gemini
-only (groq/deepseek ignore it).
+Providers fallback chain: `_ALL_PROVIDERS = ["gemini", "deepseek"]`; primary =
+`llm_provider` (placed first by `call_llm`, then the rest). `model=` override is
+applied to Gemini only (DeepSeek ignores it). Every call outcome is recorded in
+`llm_usage_events` (see §6.13).
 
 ## 8. Deployment (VPS)
 
@@ -506,8 +553,10 @@ only (groq/deepseek ignore it).
 4. **pytest temp-dir PermissionError on Windows**: always run with
    `--basetemp "C:\Users\pc\AppData\Local\Temp\opencode\pytest-basetmp"` (a stale
    `pytest-of-pc` dir gets access-denied otherwise).
-5. **`gemma-4-31b-it` is a thinking model** — do not give it short-output tasks
-   with small token budgets (empty responses). Use the condense model for that.
+5. **Thinking models** — `gemma-4-31b-it` burns its output budget on reasoning
+   (empty responses) and has only a 16K TPM free-tier limit; it is **no longer
+   used** anywhere (see §6.13). If you ever re-enable a thinking model, do not
+   give it short-output tasks with small token budgets.
 6. **SSH password automation on Windows**: create a temp `vps-pass.txt` +
    `vps-askpass.cmd` that `type`s it, set `SSH_ASKPASS` / `SSH_ASKPASS_REQUIRE=
    force` / `DISPLAY=localhost:0`, then run `ssh`/`scp`. **DELETE the temp files
@@ -550,6 +599,15 @@ only (groq/deepseek ignore it).
   credentials on the Mac at the time): local `main` = VPS `main` = `adafaa9`,
   GitHub `origin/main` still at `f0ecf4d`. **The user must `git push origin main`
   to sync GitHub.** See §6.12 and §8.
+- **LLM overhaul (2026-10-03)**: single `gemini-3.1-flash-lite` model for
+  everything, Groq removed, SQLite-backed shared RPM/TPM/RPD limiter (migration
+  `011_llm_rate_and_usage` → `llm_rate_events` + `llm_usage_events`),
+  `_last_provider`/provider-attribution and usage instrumentation, and the
+  `/api/runs` double-execution fix. Validated on a DB copy: RSS `2026-10-01`
+  (15 calls, 0 fallbacks) and YouTube `2026-09-28` (2 calls, 0 fallbacks) both
+  completed **Gemini-only**, and RSS with DeepSeek enabled showed **0.0%
+  fallback**. Full suite 114 passed. `scripts/validate_llm_limits.py` reruns the
+  check. See §6.13.
 - Local DB: 640 articles, 75 daily digests, 30 YouTube digests. **Identical DB
   now also on the VPS** (DB-copy deploy on 2026-08-15 — see §6.11 deploy
   status). VPS backup of the pre-copy DB:

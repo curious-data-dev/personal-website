@@ -1,10 +1,11 @@
-"""Tests for the per-minute token budget limiter and rate-limit-aware retry."""
+"""Tests for the shared provider rate limiter, fallback chain, and retry behaviour."""
 
 import pytest
 
 from app.summarizer import llm
 from app.summarizer.llm import (
-    TokenRateLimiter,
+    ProviderRateLimiter,
+    RateLimitExhausted,
     estimate_tokens,
     is_rate_limit_error,
 )
@@ -39,29 +40,6 @@ def test_estimate_tokens_is_character_ratio():
     assert estimate_tokens("a" * 8000) == 2000
 
 
-def test_rate_limiter_paces_bursts_within_budget(fake_clock):
-    limiter = TokenRateLimiter(tokens_per_minute=4000, window_seconds=60)
-    # 5 parallel calls of 1000 tokens each: 4 fit in the 4000 budget...
-    for _ in range(4):
-        assert limiter.acquire(1000) == 0.0
-    # ...the 5th must wait for the window to roll over.
-    waited = limiter.acquire(1000)
-    assert waited > 0
-    # After the wait the budget is fresh again.
-    assert limiter.acquire(1000) == 0.0
-    assert len(fake_clock.sleeps) >= 1
-
-
-def test_rate_limiter_window_reset_after_sleep(fake_clock):
-    limiter = TokenRateLimiter(tokens_per_minute=100, window_seconds=60)
-    limiter.acquire(100)  # full budget
-    assert limiter.seconds_until_window_reset() == pytest.approx(60.0)
-    # Advance past the window and confirm capacity returns.
-    fake_clock.now += 61
-    assert limiter.seconds_until_window_reset() == 0.0
-    assert limiter.acquire(100) == 0.0
-
-
 def test_is_rate_limit_error_detects_common_messages():
     assert is_rate_limit_error(RuntimeError("429 RESOURCE_EXHAUSTED rate limit"))
     assert is_rate_limit_error(RuntimeError("tokens per minute exceeded"))
@@ -71,54 +49,126 @@ def test_is_rate_limit_error_detects_common_messages():
     assert not is_rate_limit_error(RuntimeError("quota exceeded"))  # daily quota, not per-minute
 
 
-def test_429_retry_waits_for_window_then_succeeds(fake_clock, monkeypatch):
-    """A 429 should pause until the budget window resets, then retry, not give up."""
+# ---------------------------------------------------------------------------
+# ProviderRateLimiter (SQLite-backed, shared across processes)
+# ---------------------------------------------------------------------------
+
+
+def test_disabled_limiter_is_noop(isolated_db):
+    limiter = ProviderRateLimiter("gemini", rpm=0, tpm=0, rpd=0)
+    assert limiter.enabled is False
+    assert limiter.acquire(10**9) == 0.0
+
+
+def test_limiter_enforces_requests_per_minute(isolated_db, fake_clock):
+    limiter = ProviderRateLimiter("gemini", rpm=3, tpm=0, rpd=0, window_seconds=60)
+    assert limiter.acquire(1) == 0.0
+    assert limiter.acquire(1) == 0.0
+    assert limiter.acquire(1) == 0.0
+    # 4th request in the window must wait for the first to age out.
+    waited = limiter.acquire(1)
+    assert waited >= 59
+    # After the wait the window has room again.
+    assert limiter.acquire(1) == 0.0
+
+
+def test_limiter_enforces_tokens_per_minute(isolated_db, fake_clock):
+    limiter = ProviderRateLimiter("gemini", rpm=0, tpm=10, rpd=0, window_seconds=60)
+    assert limiter.acquire(4) == 0.0
+    assert limiter.acquire(4) == 0.0
+    # 8 used + 4 requested > 10 → must wait.
+    assert limiter.acquire(4) >= 59
+
+
+def test_limiter_daily_quota_raises_instead_of_waiting(isolated_db, fake_clock):
+    limiter = ProviderRateLimiter("gemini", rpm=0, tpm=0, rpd=2)
+    assert limiter.acquire(1) == 0.0
+    assert limiter.acquire(1) == 0.0
+    with pytest.raises(RateLimitExhausted):
+        limiter.acquire(1)
+
+
+def test_limiter_is_shared_between_connections(isolated_db, fake_clock):
+    """Two limiter instances (two processes) draw from one DB budget."""
+    process_a = ProviderRateLimiter("gemini", rpm=3, tpm=0, rpd=0)
+    process_b = ProviderRateLimiter("gemini", rpm=3, tpm=0, rpd=0)
+    assert process_a.acquire(1) == 0.0
+    assert process_b.acquire(1) == 0.0
+    assert process_a.acquire(1) == 0.0
+    # Cross-process budget is exhausted → process_b must wait.
+    assert process_b.acquire(1) >= 59
+
+
+# ---------------------------------------------------------------------------
+# Fallback chain
+# ---------------------------------------------------------------------------
+
+
+def test_chain_contains_only_gemini_and_deepseek():
+    assert llm._ALL_PROVIDERS == ["gemini", "deepseek"]
+    assert not hasattr(llm, "_call_groq")
+
+
+def _configure(monkeypatch, gemini="k", deepseek="k"):
+    monkeypatch.setattr(llm.settings, "gemini_api_key", gemini)
+    monkeypatch.setattr(llm.settings, "deepseek_api_key", deepseek)
+    monkeypatch.setattr(llm, "_LIMITERS", {})  # no pacing in these unit tests
+
+
+def test_deepseek_used_only_after_gemini_retries(isolated_db, monkeypatch, fake_clock):
+    _configure(monkeypatch)
+    gemini_calls = {"n": 0}
+    deepseek_calls = {"n": 0}
+
+    def failing_gemini(prompt, max_tokens=None, model=None):
+        gemini_calls["n"] += 1
+        raise RuntimeError("Gemini returned empty response")  # retryable
+
+    def ok_deepseek(prompt, max_tokens=4096, model=None):
+        deepseek_calls["n"] += 1
+        return "deepseek answer"
+
+    monkeypatch.setattr(llm, "_call_gemini", failing_gemini)
+    monkeypatch.setattr(llm, "_call_deepseek", ok_deepseek)
+
+    result = llm.call_llm("hello", max_tokens=64)
+
+    assert result == "deepseek answer"
+    assert gemini_calls["n"] == llm.MAX_RETRIES  # exhausted before falling back
+    assert deepseek_calls["n"] == 1
+    assert llm.get_last_provider() == "deepseek"
+
+
+def test_rate_limit_waits_for_real_window_then_succeeds(isolated_db, monkeypatch, fake_clock):
+    _configure(monkeypatch)
     calls = {"n": 0}
 
-    def fake_gemini(prompt, max_tokens=4096, model=None):
+    def flaky_gemini(prompt, max_tokens=None, model=None):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("429 RESOURCE_EXHAUSTED rate limit exceeded")
         return "ok"
 
-    monkeypatch.setattr(llm, "_call_gemini", fake_gemini)
-    limiter = TokenRateLimiter(tokens_per_minute=1000, window_seconds=60)
-    monkeypatch.setattr(llm, "_rate_limiter", limiter)
+    monkeypatch.setattr(llm, "_call_gemini", flaky_gemini)
 
-    result = llm._call_with_retry("gemini", "a" * 4000, on_progress=None)
+    result = llm.call_llm("a" * 4000, max_tokens=64, provider="gemini")
 
     assert result == "ok"
     assert calls["n"] == 2
-    # The retry slept for the remaining window (~60s), then re-acquired cleanly.
-    assert any(s >= 55 for s in fake_clock.sleeps)
+    assert any(s >= llm.RATE_LIMIT_BACKOFF for s in fake_clock.sleeps)
 
 
-def test_429_retry_uses_available_budget_before_hitting_limit(fake_clock, monkeypatch):
-    """The limiter should be acquired before each real network call."""
-    attempts = []
-    limiter = TokenRateLimiter(tokens_per_minute=4000, window_seconds=60)
-    monkeypatch.setattr(llm, "_rate_limiter", limiter)
+def test_success_records_provider(isolated_db, monkeypatch, fake_clock):
+    _configure(monkeypatch)
+    monkeypatch.setattr(llm, "_call_gemini", lambda *a, **k: "answer")
 
-    def fake_gemini(prompt, max_tokens=4096, model=None):
-        attempts.append(estimate_tokens(prompt))
-        return "ok"
-
-    monkeypatch.setattr(llm, "_call_gemini", fake_gemini)
-
-    llm._call_with_retry("gemini", "x" * 4000)
-    llm._call_with_retry("gemini", "x" * 4000)
-    assert len(attempts) == 2
+    assert llm.call_llm("hi", provider="gemini", max_tokens=64) == "answer"
+    assert llm.get_last_provider() == "gemini"
 
 
-def test_oversized_request_does_not_hang(fake_clock):
-    """A request larger than the whole per-minute budget must not block forever."""
-    limiter = TokenRateLimiter(tokens_per_minute=4000, window_seconds=60)
-    limiter.acquire(4000)  # fill the budget
-    # Request larger than the budget itself: can never fit, must pass through.
-    waited = limiter.acquire(100000)
-    assert waited > 0
-    # Budget window should still have recorded it so subsequent calls pace.
-    assert limiter.seconds_until_window_reset() > 0
+# ---------------------------------------------------------------------------
+# Gemini response parsing
+# ---------------------------------------------------------------------------
 
 
 class FakeGeminiResponse:
@@ -137,11 +187,8 @@ class FakeGeminiResponse:
 
 def test_gemini_text_extraction_skips_thought_parts(monkeypatch):
     """Thinking models return reasoning parts; the answer must still be extracted."""
-    seen = {}
-
     class FakeModels:
         def generate_content(self, *a, **kw):
-            seen["kw"] = kw
             return FakeGeminiResponse(text="Final answer.", thought_text="internal reasoning")
 
     class FakeClient:
@@ -152,8 +199,7 @@ def test_gemini_text_extraction_skips_thought_parts(monkeypatch):
 
     monkeypatch.setattr(llm, "genai", type("G", (), {"Client": FakeClient, "types": llm.genai.types})())
 
-    result = llm._call_gemini("prompt")
-    assert result == "Final answer."
+    assert llm._call_gemini("prompt") == "Final answer."
 
 
 def test_gemini_text_extraction_empty_when_no_answer(monkeypatch):
@@ -170,8 +216,5 @@ def test_gemini_text_extraction_empty_when_no_answer(monkeypatch):
 
     monkeypatch.setattr(llm, "genai", type("G", (), {"Client": FakeClient, "types": llm.genai.types})())
 
-    try:
+    with pytest.raises(RuntimeError, match="empty response"):
         llm._call_gemini("prompt")
-        assert False, "should have raised"
-    except RuntimeError as e:
-        assert "empty response" in str(e)

@@ -5,7 +5,6 @@ import pytest
 
 import app.summarizer.service as service
 from app.summarizer import llm
-from app.summarizer.llm import TokenRateLimiter
 
 
 def _insert_article(conn, source_id, title="Title", raw_len=2000, published_at="2026-08-05T02:00:00+00:00", status="raw"):
@@ -168,8 +167,8 @@ def test_reduce_groups_subsummaries_under_token_budget(monkeypatch):
     monkeypatch.setattr(service.settings, "max_article_chars", FakeSettings.max_article_chars)
     monkeypatch.setattr(service.settings, "llm_input_tokens_per_min", 500)
     monkeypatch.setattr(service.settings, "rate_limit_window_seconds", 60)
-    # Patch the module-global limiter so the reduce isn't actually paced in-test.
-    monkeypatch.setattr(llm, "_rate_limiter", TokenRateLimiter(10**9, 60))
+    # Disable provider pacing; this test only exercises the reduce grouping.
+    monkeypatch.setattr(llm, "_LIMITERS", {})
 
     reduce_calls = {"n": 0, "inputs": []}
 

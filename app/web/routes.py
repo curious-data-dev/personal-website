@@ -48,6 +48,7 @@ from app.database import (
     create_run,
     get_run,
     list_runs,
+    claim_run,
 )
 from app.orchestration import execute_run
 from app.scraper.service import run_scrape
@@ -887,13 +888,15 @@ async def api_create_run(request: Request):
             run_id = create_run(conn, "manual", source_ids, start_date, end_date)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        # Execute the run in a background thread (no worker needed)
+        # Execute the run in a background thread. Claim it first so the worker
+        # cannot also pick it up (which would execute the run twice).
         def _run():
             conn2 = get_db()
             try:
-                run = get_run(conn2, run_id)
-                if run:
-                    execute_run(run)
+                if claim_run(conn2, run_id, "app", settings.worker_lease_minutes):
+                    run = get_run(conn2, run_id)
+                    if run:
+                        execute_run(run)
             finally:
                 conn2.close()
         threading.Thread(target=_run, daemon=True).start()
@@ -1213,7 +1216,7 @@ async def trigger_summarize(request: Request):
 @router.post("/admin/regenerate-digest/{date_str}")
 async def regenerate_digest(request: Request, date_str: str):
     """Regenerate the daily digest for a specific date.
-    Accepts optional query params: provider (gemini|groq|deepseek) and model."""
+    Accepts optional query params: provider (gemini|deepseek) and model."""
     if not _check_session(request):
         raise HTTPException(status_code=401)
 

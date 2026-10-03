@@ -974,6 +974,23 @@ def claim_next_run(conn: sqlite3.Connection, worker_id: str, lease_minutes: int)
     return dict(conn.execute("SELECT * FROM runs WHERE id=?", (row["id"],)).fetchone())
 
 
+def claim_run(conn: sqlite3.Connection, run_id: int, worker_id: str, lease_minutes: int) -> bool:
+    """Atomically claim one specific queued run. Returns True if claimed.
+
+    Used to prevent two processes (app thread + worker) from executing the same
+    run: whoever flips it from 'queued' to 'running' first owns it.
+    """
+    cur = conn.execute(
+        """UPDATE runs SET status='running', stage='starting',
+                  started_at=COALESCE(started_at, CURRENT_TIMESTAMP),
+                  lease_owner=?, lease_expires_at=datetime('now', ?)
+           WHERE id=? AND status='queued'""",
+        (worker_id, f"+{lease_minutes} minutes", run_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def update_run(
     conn: sqlite3.Connection,
     run_id: int,
