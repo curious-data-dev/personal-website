@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     gmail_app_password: str = ""
     recipient_email: str = ""
 
+    # Kindle delivery — export each day's digest to HTML → EPUB and email it
+    # to the Kindle "Send to Kindle" address after the daily run.
+    # kindle_email is the @kindle.com address; mail is sent from gmail_user
+    # (which must be on Amazon's Approved Personal Document E-mail List).
+    kindle_email: str = ""
+    kindle_enabled: bool = True
+    # Where the exported .html / .epub files are written (persisted).
+    kindle_export_dir: str = "./data/kindle_exports"
+
     # Files & paths
     opml_path: str = "RSS Feeds main.xml"
     data_dir: str = "./data"

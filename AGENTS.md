@@ -5,13 +5,19 @@ left off without re-discovering the codebase. It captures architecture, known
 issues, the fixes already implemented (and where), gotchas, and the deploy
 workflow. **Read this before doing anything.**
 
-Last updated: 2026-08-16 (session: YouTube per-video article-level summaries
-regenerated in the detailed extract format via scripts/regen_youtube_article_summaries.py;
-digests left untouched; generate_date_digest.py gained --skip-rss; code commit
-61cd436 pushed + pulled on VPS; DB-copy deploy 2026-08-16 — see §11). Prior
-session 2026-08-15: digest story-extraction fix — one story = one block, not
-facet-splitting; layman prose style — zero assumed context; Aug 11-14 RSS +
-YouTube digests regenerated and DEPLOYED to VPS via DB-copy (commit 7280ac9).
+Last updated: 2026-10-03 (session: **Kindle EPUB delivery** — after the daily
+DAG, export yesterday's digest (RSS + YouTube) to HTML → EPUB and email it to
+the Kindle address; older regenerated digests are re-sent with an "(Updated
+<date>)" suffix; today's digest is never sent. New `app/kindle/` package,
+migration `010_kindle_sends.sql`, `scripts/send_kindle_digests.py`, 10 new
+tests. See §6.12/§7/§8/§11 for details and deploy status). Prior
+session 2026-08-16: YouTube per-video article-level summaries regenerated in the
+detailed extract format via scripts/regen_youtube_article_summaries.py; digests
+left untouched; generate_date_digest.py gained --skip-rss; code commit 61cd436
+pushed + pulled on VPS; DB-copy deploy 2026-08-16 — see §11. Session 2026-08-15:
+digest story-extraction fix — one story = one block, not facet-splitting;
+layman prose style — zero assumed context; Aug 11-14 RSS + YouTube digests
+regenerated and DEPLOYED to VPS via DB-copy (commit 7280ac9).
 
 ---
 
@@ -58,6 +64,11 @@ app/
   web/routes.py            # FastAPI routes + markdown renderer.
   web/templates/           # index.html (digest page), etc.
   prompts/manager.py       # PromptManager loads .md prompt templates.
+  kindle/                  # Kindle EPUB delivery (see §6.12).
+    service.py             # candidate selection, naming, hash-dedupe, orchestration.
+    renderer.py            # digest markdown → self-contained HTML.
+    html2epub.py           # vendored HTML→EPUB converter (from Conversion Folder).
+    emailer.py             # Gmail SMTP EPUB attachment sender.
 Main Architechture/prompts/   # ACTUAL prompt templates used (see §5).
   daily_digest.md, youtube_digest.md, condense_summary.md,
   single_summary.md, reduce_synthesis.md, chunk_summary.md, ...
@@ -67,6 +78,9 @@ scripts/                 # Dev/diagnostic helpers (committed).
   regen_youtube_article_summaries.py  # regen per-video summary_text (footnotes/
                            # article page) with the detailed YouTube extract
                            # prompt — does NOT touch the digest. --since/--date.
+  send_kindle_digests.py   # export digest(s) → EPUB and email to Kindle.
+                           # No args = daily behavior; --date/--type/--dry-run/
+                           # --force/--refreshed/--recipient (see §6.12).
   discover_date_articles.py
   run_summarization_now.py
   validate_digest_tokens.py
@@ -358,6 +372,56 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   (started as a background job) died each time a digest-regeneration job was
   started afterwards. Restart the server after any background regeneration.
 
+### 6.12 Kindle EPUB delivery ✅ DONE (2026-10-03)
+- **What it does**: after the daily DAG (`daily_scrape_and_summarize` in
+  `app/main.py`), export digests to HTML → EPUB and email them to the Kindle
+  "Send to Kindle" address, so the day's reading can be done on an e-reader.
+- **Sending rules** (`app/kindle/service.py`):
+  - Always consider **yesterday's** digest for BOTH types (RSS + YouTube) — the
+    newest *reliable* edition.
+  - Also resend any OLDER digest that was regenerated in that run (late-arriving
+    articles refresh past digests); these get the `(Updated <today>)` suffix.
+  - **Never send today's** (or a future) digest — it will still be refreshed.
+  - A `sha256` content hash per `(digest_type, date)` in the `kindle_sends`
+    table prevents duplicate emails when a "refresh" did not change the text.
+    The record is written only after a successful send, so failures retry next run.
+- **Naming convention** (`build_digest_name`): `"<Type> Digest - <pretty date>"`,
+  where Type is `RSS` or `YouTube`; refreshed older digests append
+  `" (Updated <pretty today>)"`. Examples:
+  `RSS Digest - 02 October 2026.epub`,
+  `YouTube Digest - 02 October 2026.epub`,
+  `RSS Digest - 30 September 2026 (Updated 03 October 2026).epub`.
+  The same string is the filename, the EPUB `<dc:title>`, and the email subject.
+- **Artifacts**: written to `settings.kindle_export_dir` (default
+  `./data/kindle_exports`, gitignored) as `<name>.html` + `<name>.epub`.
+- **HTML→EPUB**: `app/kindle/html2epub.py` is the standalone converter from
+  `Conversion Folder/html2epub.py`, trimmed to an in-memory HTML string path
+  (digest HTML is self-contained, no images/URLs). One chapter per `<h2>`. The
+  digest HTML is built by `app/kindle/renderer.py` using the SAME
+  `render_markdown` as the web pages, wrapped in `<article>` + `<footer>` so the
+  converter extracts exactly the reading card (no sidebar/TOC chrome).
+- **Email**: `app/kindle/emailer.py` sends one EPUB per email via Gmail SMTP
+  (`smtp.gmail.com:465`), `application/epub+zip`, from `gmail_user`. **The
+  sending Gmail address must be on Amazon's Approved Personal Document E-mail
+  List** for the Kindle account or Amazon drops it silently.
+- **Hook**: `app/main.py` Phase 5 runs `send_digests_to_kindle(
+  regenerated=summary_stats["digests_regenerated"])` in its OWN try/except so a
+  Kindle failure never fails the daily DAG. `run_summarization()` now returns
+  `stats["digests_regenerated"] = {"rss": [...], "youtube": [...]}`.
+- **Manual/testing**: `scripts/send_kindle_digests.py`.
+  - No args = daily behavior (yesterday + refreshed older; never today).
+  - `--date YYYY-MM-DD [--type rss|youtube|both]` targets one date.
+  - `--dry-run` builds HTML/EPUB without sending/recording; `--force` bypasses
+    the hash dedupe; `--refreshed` adds the Updated suffix; `--recipient`
+    overrides the address.
+- **Migration**: `migrations/010_kindle_sends.sql` creates `kindle_sends`
+  (NOT in `SCHEMA` — same pattern as other table-only migrations).
+- **Deps added**: `ebooklib`, `beautifulsoup4`, `lxml` in `requirements.txt`.
+- **Local validation (2026-10-03)**: dry-run + real sends of
+  `RSS Digest - 02 October 2026` and `YouTube Digest - 28 September 2026`
+  succeeded to `psh1021_m3QS7u@kindle.com`; repeat send skipped as `unchanged`;
+  refreshed naming verified; full suite 109 passed.
+
 ## 7. Environment / Config (app/config.py)
 
 Key settings (env-overridable via `.env`):
@@ -372,6 +436,9 @@ Key settings (env-overridable via `.env`):
   `max_article_chars = 15000`, `chunk_size = 4000`
 - `scrape_cron_hour = 8` (VPS `.env` sets `SCRAPE_CRON_HOUR=08`, `MINUTE=00` →
   **daily 08:00 IST**)
+- Kindle: `kindle_email` (`@kindle.com` address), `kindle_enabled = True`,
+  `kindle_export_dir = "./data/kindle_exports"` (see §6.12). Sent from
+  `gmail_user` using `gmail_app_password`.
 
 Providers fallback chain: `_ALL_PROVIDERS = ["deepseek", "groq", "gemini"]`;
 primary = `llm_provider`. `model=` override in `call_llm` is applied to Gemini
@@ -404,6 +471,16 @@ only (groq/deepseek ignore it).
   `docker compose up -d --build` ran `migrate`, applying 009 to the VPS DB and
   backfilling all 70 daily + 27 YouTube digests to read. DBs are separate per
   machine; local test toggles are NOT shipped.
+- **Kindle deploy (2026-10-03)**: code-only deploy. `requirements.txt` gained
+  `ebooklib`/`beautifulsoup4`/`lxml`, so `docker compose up -d --build` is
+  required (not just a restart) to install them; `migrate` creates the
+  `kindle_sends` table. **The VPS `.env` must contain `KINDLE_EMAIL=<@kindle.com>`
+  (`KINDLE_ENABLED=true`, `KINDLE_EXPORT_DIR=./data/kindle_exports` optional)** —
+  `.env` is gitignored, so add it by hand over SSH. Test without waiting for the
+  DAG:
+  `docker compose exec -T app python scripts/send_kindle_digests.py --date <yesterday> --force`
+  (or `--dry-run` first). Note the daily job runs at `SCRAPE_CRON_HOUR:MINUTE`
+  (VPS = 08:00 IST), so the Kindle email arrives around then.
 - **Windows → VPS automation**: SSH password auth needs `SSH_ASKPASS` + a temp
   askpass script; see Gotcha #6. There is no SSH key set up.
 
@@ -431,6 +508,11 @@ only (groq/deepseek ignore it).
    container). That's fine — migrate is a no-op when no migrations are pending —
    but don't be surprised by the `migrate` container appearing in `docker ps`
    after a `docker compose start app worker`.
+9. **Local env changed to macOS (2026-10-03)**: this machine had no Python
+   ≥3.10, so a Homebrew `python@3.12` + repo `.venv` was created. Use
+   `.venv/bin/python` / `.venv/bin/pytest` here; the Windows `.\\.venv\\Scripts\\...`
+   paths in §2 do not apply, and the Windows `--basetemp` workaround (#4) is not
+   needed on macOS.
 
 ## 10. Security / Credential Hygiene (IMPORTANT)
 
@@ -444,6 +526,11 @@ only (groq/deepseek ignore it).
 
 ## 11. Current Data State (as of 2026-08-15)
 
+- **Kindle delivery (2026-10-03)**: local DB migration `010_kindle_sends`
+  applied; two real test emails sent to `psh1021_m3QS7u@kindle.com`
+  (`RSS Digest - 02 October 2026`, `YouTube Digest - 28 September 2026`); the
+  test `kindle_sends` rows and `data/kindle_exports/` artifacts were cleared
+  afterwards, so the VPS will send fresh. See §6.12 and §8 for deploy status.
 - Local DB: 640 articles, 75 daily digests, 30 YouTube digests. **Identical DB
   now also on the VPS** (DB-copy deploy on 2026-08-15 — see §6.11 deploy
   status). VPS backup of the pre-copy DB:

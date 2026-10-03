@@ -1048,6 +1048,36 @@ def enqueue_transcript_job(conn: sqlite3.Connection, article_id: int, video_id: 
     )
 
 
+# ---------------------------------------------------------------------------
+# Kindle delivery tracking
+# ---------------------------------------------------------------------------
+
+
+def get_kindle_send(
+    conn: sqlite3.Connection, digest_type: str, date_str: str
+) -> dict[str, Any] | None:
+    """Return the last Kindle send record for a digest, or None."""
+    row = conn.execute(
+        "SELECT * FROM kindle_sends WHERE digest_type = ? AND digest_date = ?",
+        (digest_type, date_str),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_kindle_send(
+    conn: sqlite3.Connection, digest_type: str, date_str: str, content_hash: str
+) -> None:
+    """Record that a digest's current content was emailed to Kindle."""
+    conn.execute(
+        """INSERT INTO kindle_sends (digest_type, digest_date, content_hash, sent_at)
+           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(digest_type, digest_date) DO UPDATE SET
+               content_hash = excluded.content_hash,
+               sent_at = CURRENT_TIMESTAMP""",
+        (digest_type, date_str, content_hash),
+    )
+
+
 def get_youtube_adjacent_dates(
     conn: sqlite3.Connection, date_str: str
 ) -> tuple[str | None, str | None]:

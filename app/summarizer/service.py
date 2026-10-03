@@ -65,7 +65,7 @@ def run_summarization(
     """
     conn = get_db()
     selected_types = source_types or {"rss", "youtube"}
-    stats = {"articles_processed": 0, "articles_failed": 0, "articles_rate_limited": 0, "digest_generated": False, "digest_failed": 0}
+    stats = {"articles_processed": 0, "articles_failed": 0, "articles_rate_limited": 0, "digest_generated": False, "digest_failed": 0, "digests_regenerated": {"rss": [], "youtube": []}}
     affected_dates = {
         "rss": set(regenerate_dates or []),
         "youtube": set(regenerate_dates or []),
@@ -200,6 +200,7 @@ def run_summarization(
                     _generate_daily_digest(conn, date_str)
                     conn.commit()
                     stats["digest_generated"] = True
+                    stats["digests_regenerated"]["rss"].append(date_str)
                     logger.info(f"RSS digest generated for {date_str}")
                     if on_progress:
                         on_progress(f"✓ RSS digest for {date_str}")
@@ -232,6 +233,7 @@ def run_summarization(
                     _generate_youtube_daily_digest(conn, date_str)
                     conn.commit()
                     stats["digest_generated"] = True
+                    stats["digests_regenerated"]["youtube"].append(date_str)
                     logger.info(f"YouTube digest generated for {date_str}")
                     if on_progress:
                         on_progress(f"✓ YouTube digest for {date_str}")
