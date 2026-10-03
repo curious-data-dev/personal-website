@@ -483,6 +483,15 @@ only (groq/deepseek ignore it).
   `docker compose exec -T app python scripts/send_kindle_digests.py --date <yesterday> --force`
   (or `--dry-run` first). Note the daily job runs at `SCRAPE_CRON_HOUR:MINUTE`
   (VPS = 08:00 IST), so the Kindle email arrives around then.
+  - **If `git push` is unavailable** (no GitHub creds on this Mac): deploy via a
+    thin bundle — `git bundle create /tmp/k.bundle <vps_head>..main`,
+    `scp` it, then on the VPS `git fetch /tmp/k.bundle main && git merge --ff-only
+    FETCH_HEAD`. This leaves the VPS commit hash identical to local; GitHub stays
+    behind until the user pushes. App-only `.py` changes take effect with
+    `docker compose restart app` (the `./app` dir is bind-mounted); dependency
+    changes need `docker compose up -d --build`.
+  - **Outbound SMTP**: port 465 is blocked from the VPS (IPv4 times out, IPv6
+    unreachable); 587/STARTTLS works.
 - **Windows → VPS automation**: SSH password auth needs `SSH_ASKPASS` + a temp
   askpass script; see Gotcha #6. There is no SSH key set up.
 
@@ -528,11 +537,19 @@ only (groq/deepseek ignore it).
 
 ## 11. Current Data State (as of 2026-08-15)
 
-- **Kindle delivery (2026-10-03)**: local DB migration `010_kindle_sends`
-  applied; two real test emails sent to `psh1021_m3QS7u@kindle.com`
-  (`RSS Digest - 02 October 2026`, `YouTube Digest - 28 September 2026`); the
-  test `kindle_sends` rows and `data/kindle_exports/` artifacts were cleared
-  afterwards, so the VPS will send fresh. See §6.12 and §8 for deploy status.
+- **Kindle delivery (2026-10-03)**: implemented, tested (109 tests), and
+  **DEPLOYED to the VPS**. Local: migration `010_kindle_sends` applied and real
+  test emails sent to `psh1021_m3QS7u@kindle.com` (`RSS Digest - 02 October
+  2026`, `YouTube Digest - 28 September 2026`); local test `kindle_sends` rows
+  and `data/kindle_exports/` were cleared afterwards. VPS: `.env` gained
+  `KINDLE_EMAIL` (backup `.env.bak-kindle-<stamp>`), migration ran (VPS backup
+  `data/backups/aggregator-20261003T171303Z.db`), and both a real RSS
+  (`2026-10-02`) and YouTube (`2026-09-28`) send succeeded — the first attempt
+  failed on port 465, fixed with 587/STARTTLS (commit `adafaa9`).
+  **Code was deployed via a git bundle over SSH, NOT GitHub** (no GitHub
+  credentials on the Mac at the time): local `main` = VPS `main` = `adafaa9`,
+  GitHub `origin/main` still at `f0ecf4d`. **The user must `git push origin main`
+  to sync GitHub.** See §6.12 and §8.
 - Local DB: 640 articles, 75 daily digests, 30 YouTube digests. **Identical DB
   now also on the VPS** (DB-copy deploy on 2026-08-15 — see §6.11 deploy
   status). VPS backup of the pre-copy DB:
