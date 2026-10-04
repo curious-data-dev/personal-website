@@ -10,6 +10,7 @@ Pipeline per channel:
 Rate limiting is handled with configurable delays between requests.
 """
 
+import gzip
 import logging
 import re
 import time
@@ -92,6 +93,39 @@ def _get_rss_url(channel_id: str) -> str:
     return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
 
 
+class FeedFetchError(RuntimeError):
+    """Raised when a channel's feed cannot be fetched or parsed.
+
+    This is deliberately an error rather than an empty result: a feed that
+    fails to load must never be mistaken for "the channel posted nothing".
+    """
+
+
+def _fetch_feed_bytes(url: str) -> bytes:
+    """Fetch a feed URL with a predictable encoding and gunzip defensively.
+
+    YouTube serves channel feeds gzip-compressed, and some CDN edges omit the
+    Content-Encoding header. feedparser's own transport then hands the raw gzip
+    bytes to the XML parser, which fails with "not well-formed (invalid token)"
+    and silently yields zero entries (the daily-run outage this guards against).
+    Requesting identity encoding avoids that path entirely; the gzip check is a
+    belt-and-braces fallback for edges that compress regardless.
+    """
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; RSSDigest/1.0)",
+            "Accept": "application/atom+xml, application/xml, text/xml, */*",
+            "Accept-Encoding": "identity",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        data = resp.read()
+    if data[:2] == b"\x1f\x8b":  # gzip magic bytes
+        data = gzip.decompress(data)
+    return data
+
+
 def _fetch_channel_videos(
     channel_id: str,
     since: datetime,
@@ -108,11 +142,17 @@ def _fetch_channel_videos(
         List of dicts with keys: video_id, title, url, published, snippet.
     """
     rss_url = _get_rss_url(channel_id)
-    parsed = feedparser.parse(rss_url)
+    try:
+        data = _fetch_feed_bytes(rss_url)
+    except Exception as exc:
+        raise FeedFetchError(f"request failed for {channel_id}: {exc}") from exc
+
+    parsed = feedparser.parse(data)
 
     if parsed.bozo and not parsed.entries:
-        logger.warning(f"RSS parse warning for channel {channel_id}: {parsed.bozo_exception}")
-        return []
+        raise FeedFetchError(
+            f"feed parse failed for {channel_id}: {parsed.bozo_exception}"
+        )
 
     videos = []
     for entry in parsed.entries:
