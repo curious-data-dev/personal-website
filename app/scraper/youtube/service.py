@@ -11,9 +11,12 @@ Rate limiting is handled with configurable delays between requests.
 """
 
 import gzip
+import json
 import logging
 import re
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -126,7 +129,114 @@ def _fetch_feed_bytes(url: str) -> bytes:
     return data
 
 
+def _uploads_playlist_id(channel_id: str) -> str:
+    """Return a channel's uploads playlist id (UC... -> UU...)."""
+    return "UU" + channel_id[2:] if channel_id.startswith("UC") else channel_id
+
+
+def _youtube_api_get(path: str, params: dict[str, Any]) -> dict[str, Any]:
+    """GET a YouTube Data API v3 resource. Raises FeedFetchError on failure."""
+    url = f"https://www.googleapis.com/youtube/v3/{path}?{urllib.parse.urlencode(params)}"
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": "RSSDigest/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # Do not include the URL in the message: it carries the API key.
+        detail = exc.read().decode("utf-8", "replace")[:300]
+        key = str(params.get("key") or "")
+        if key:
+            detail = detail.replace(key, "***")
+        raise FeedFetchError(f"YouTube Data API HTTP {exc.code}: {detail}") from exc
+    except Exception as exc:
+        raise FeedFetchError(f"YouTube Data API request failed: {exc}") from exc
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _fetch_channel_videos_api(
+    channel_id: str,
+    since: datetime,
+    until: datetime,
+) -> list[dict[str, Any]]:
+    """List recent uploads via the official YouTube Data API v3.
+
+    Uses the channel's uploads playlist, which returns exact publish
+    timestamps (unlike the channel/watch HTML pages, which are also
+    bot-gated from the VPS).
+    """
+    data = _youtube_api_get(
+        "playlistItems",
+        {
+            "part": "snippet,contentDetails",
+            "playlistId": _uploads_playlist_id(channel_id),
+            "maxResults": 50,
+            "key": settings.youtube_api_key.strip(),
+        },
+    )
+
+    videos = []
+    for item in data.get("items") or []:
+        snippet = item.get("snippet") or {}
+        details = item.get("contentDetails") or {}
+        video_id = (snippet.get("resourceId") or {}).get("videoId")
+        if not video_id:
+            continue
+
+        published = _parse_iso_datetime(
+            details.get("videoPublishedAt") or snippet.get("publishedAt")
+        )
+        if published is None:
+            continue
+        if published < since or published > until:
+            continue
+
+        videos.append({
+            "video_id": video_id,
+            "title": snippet.get("title", "Untitled"),
+            "url": f"https://www.youtube.com/watch?v={video_id}",
+            "published": published,
+            "snippet": _strip_html(snippet.get("description", ""))[:500],
+            "duration_seconds": None,
+        })
+
+    return videos
+
+
 def _fetch_channel_videos(
+    channel_id: str,
+    since: datetime,
+    until: datetime,
+) -> list[dict[str, Any]]:
+    """Discover recent videos.
+
+    Prefers the official Data API when YOUTUBE_API_KEY is configured; falls
+    back to the channel RSS feed if the API call fails.
+    """
+    if settings.youtube_api_key.strip():
+        try:
+            return _fetch_channel_videos_api(channel_id, since, until)
+        except FeedFetchError as exc:
+            logger.warning(
+                f"YouTube Data API failed for {channel_id}: {exc}; falling back to RSS"
+            )
+    return _fetch_channel_videos_rss(channel_id, since, until)
+
+
+def _fetch_channel_videos_rss(
     channel_id: str,
     since: datetime,
     until: datetime,

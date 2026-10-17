@@ -123,7 +123,9 @@ def test_run_youtube_scrape_stores_discovered_video(isolated_db, monkeypatch):
 
     monkeypatch.setattr(service, "_fetch_feed_bytes", lambda url: VALID_FEED)
 
-    stats = service.run_youtube_scrape(source_ids=[source_id], defer_transcripts=True)
+    stats = service.run_youtube_scrape(
+        source_ids=[source_id], start_date="2026-09-28", defer_transcripts=True
+    )
 
     assert stats["videos_new"] == 1
     assert stats["channels_success"] == 1
@@ -137,3 +139,95 @@ def test_run_youtube_scrape_stores_discovered_video(isolated_db, monkeypatch):
     assert article["status"] == "pending_transcript"
     assert article["url"] == "https://www.youtube.com/watch?v=abc123XYZ"
     assert job["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# YouTube Data API v3 discovery (option 1)
+# ---------------------------------------------------------------------------
+
+API_RESPONSE = {
+    "items": [
+        {
+            "snippet": {
+                "title": "New Video",
+                "resourceId": {"videoId": "apiNEW1234"},
+                "publishedAt": "2026-10-15T10:00:00Z",
+                "description": "new description",
+            },
+            "contentDetails": {"videoPublishedAt": "2026-10-15T09:00:00Z"},
+        },
+        {
+            "snippet": {
+                "title": "Old Video",
+                "resourceId": {"videoId": "apiOLD1234"},
+                "publishedAt": "2026-09-01T10:00:00Z",
+            },
+            "contentDetails": {"videoPublishedAt": "2026-09-01T09:00:00Z"},
+        },
+    ]
+}
+
+
+def test_uploads_playlist_id():
+    assert service._uploads_playlist_id("UCqW8jxh4tH1Z1sWPbkGWL4g") == "UUqW8jxh4tH1Z1sWPbkGWL4g"
+
+
+def test_api_discovery_parses_and_filters(monkeypatch):
+    monkeypatch.setattr(service.settings, "youtube_api_key", "test-key")
+    monkeypatch.setattr(service, "_youtube_api_get", lambda path, params: API_RESPONSE)
+
+    videos = service._fetch_channel_videos(
+        "UCtest", datetime(2026, 10, 10, tzinfo=timezone.utc),
+        datetime(2026, 10, 20, tzinfo=timezone.utc),
+    )
+
+    assert len(videos) == 1
+    assert videos[0]["video_id"] == "apiNEW1234"
+    assert videos[0]["published"] == datetime(2026, 10, 15, 9, 0, tzinfo=timezone.utc)
+
+
+def test_api_preferred_when_key_set(monkeypatch):
+    monkeypatch.setattr(service.settings, "youtube_api_key", "test-key")
+    monkeypatch.setattr(service, "_youtube_api_get", lambda path, params: API_RESPONSE)
+    monkeypatch.setattr(
+        service, "_fetch_feed_bytes",
+        lambda url: (_ for _ in ()).throw(AssertionError("RSS should not be used")),
+    )
+
+    videos = service._fetch_channel_videos(
+        "UCtest", datetime(2026, 10, 10, tzinfo=timezone.utc),
+        datetime(2026, 10, 20, tzinfo=timezone.utc),
+    )
+    assert [v["video_id"] for v in videos] == ["apiNEW1234"]
+
+
+def test_api_failure_falls_back_to_rss(monkeypatch):
+    monkeypatch.setattr(service.settings, "youtube_api_key", "test-key")
+
+    def _boom(path, params):
+        raise service.FeedFetchError("quota exceeded")
+
+    monkeypatch.setattr(service, "_youtube_api_get", _boom)
+    monkeypatch.setattr(service, "_fetch_feed_bytes", lambda url: VALID_FEED)
+
+    videos = service._fetch_channel_videos(
+        "UCtest", datetime(2026, 9, 1, tzinfo=timezone.utc),
+        datetime(2026, 10, 5, tzinfo=timezone.utc),
+    )
+    assert [v["video_id"] for v in videos] == ["abc123XYZ"]
+
+
+def test_no_key_uses_rss(monkeypatch):
+    monkeypatch.setattr(service.settings, "youtube_api_key", "")
+    monkeypatch.setattr(service, "_fetch_feed_bytes", lambda url: VALID_FEED)
+    monkeypatch.setattr(
+        service, "_youtube_api_get",
+        lambda path, params: (_ for _ in ()).throw(AssertionError("API should not be used")),
+    )
+
+    videos = service._fetch_channel_videos(
+        "UCtest", datetime(2026, 9, 1, tzinfo=timezone.utc),
+        datetime(2026, 10, 5, tzinfo=timezone.utc),
+    )
+    assert [v["video_id"] for v in videos] == ["abc123XYZ"]
+

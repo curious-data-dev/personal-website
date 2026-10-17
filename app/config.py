@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # 1-2 days late, so a 48h window let those fall out before being fetched.
     lookback_hours: int = 96
 
+    # YouTube Data API v3 key (separate from the Gemini key). When set, video
+    # discovery uses the official API (exact publish timestamps) and falls back
+    # to the channel RSS feed on failure.
+    youtube_api_key: str = ""
+
     # Durable worker and YouTube transcript providers
     worker_poll_seconds: int = 5
     worker_lease_minutes: int = 360
