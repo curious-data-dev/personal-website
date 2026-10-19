@@ -8,18 +8,20 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     deepseek_api_key: str = ""
     llm_provider: str = "gemini"  # primary provider: "gemini" or "deepseek"
-    # One Gemini model for everything (summary, condense, digest). 3.1 flash-lite
+    # One Gemini model for everything (summary, condense, digest). 3.5 flash-lite
     # is non-thinking, fast, and has a 250K TPM budget — unlike the old thinking
     # model (gemma-4-31b-it) whose 16K TPM wall caused frequent failures and
-    # paid DeepSeek fallbacks.
-    gemini_model: str = "gemini-3.1-flash-lite"
-    gemini_condense_model: str = "gemini-3.1-flash-lite"
-    gemini_digest_model: str = "gemini-3.1-flash-lite"
+    # paid DeepSeek fallbacks. Upgraded from 3.1 flash-lite on 2026-10-19 after
+    # 3.1 began returning 503 UNAVAILABLE ("high demand").
+    gemini_model: str = "gemini-3.5-flash-lite"
+    gemini_condense_model: str = "gemini-3.5-flash-lite"
+    gemini_digest_model: str = "gemini-3.5-flash-lite"
 
     # Gemini free-tier pacing, kept under the real limits (15 RPM / 250K TPM /
     # 500 RPD). Enforced by a SQLite-backed limiter shared by the app and worker
     # processes so they never collectively exceed the quota. 0 disables a limit.
-    gemini_rpm_limit: int = 14
+    # RPM 13 leaves a 2-request safety margin under the 15 RPM ceiling.
+    gemini_rpm_limit: int = 13
     gemini_tpm_limit: int = 230000
     gemini_rpd_limit: int = 480
 

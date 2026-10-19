@@ -489,15 +489,20 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   `/admin/youtube/scrape` still run inline in the app. They are user-triggered
   overrides and should be migrated to enqueue runs if the app is to be strictly
   read-only.
+- **2026-10-19 model upgrade**: `gemini-3.1-flash-lite` began returning
+  `503 UNAVAILABLE` ("high demand"), stalling a run while it retried and fell
+  back to paid DeepSeek (no 429s were involved). Switched summary/condense/
+  digest to `gemini-3.5-flash-lite` (verified HTTP 200) and lowered the RPM cap
+  from 14 → 13 as a safety margin.
 
 ## 7. Environment / Config (app/config.py)
 
 Key settings (env-overridable via `.env`):
-- `gemini_model = gemini-3.1-flash-lite` (used for EVERYTHING — summary,
-  condense, digest; see §6.13)
-- `gemini_condense_model = gemini-3.1-flash-lite`
-- `gemini_digest_model = gemini-3.1-flash-lite`
-- `gemini_rpm_limit = 14`, `gemini_tpm_limit = 230000`, `gemini_rpd_limit = 480`
+- `gemini_model = gemini-3.5-flash-lite` (used for EVERYTHING — summary,
+  condense, digest; upgraded from 3.1 on 2026-10-19 after 503 UNAVAILABLE)
+- `gemini_condense_model = gemini-3.5-flash-lite`
+- `gemini_digest_model = gemini-3.5-flash-lite`
+- `gemini_rpm_limit = 13`, `gemini_tpm_limit = 230000`, `gemini_rpd_limit = 480`
   (shared SQLite limiter; 0 disables a dimension). DeepSeek limits default to 0.
 - `llm_max_output_tokens = 8192` (article summaries)
 - `llm_digest_max_output_tokens = 32768` (single digest call — ~50-article headroom)
