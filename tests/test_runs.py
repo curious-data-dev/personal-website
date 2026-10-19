@@ -74,3 +74,76 @@ def test_publication_date_is_normalized_to_ist(isolated_db):
         assert conn.execute("SELECT published_date_ist FROM articles WHERE id=?", (article_id,)).fetchone()[0] == "2026-06-27"
     finally:
         conn.close()
+
+
+def test_enqueue_scheduled_run_is_queued(isolated_db):
+    """The scheduler must only enqueue; the worker owns execution."""
+    from app.orchestration import enqueue_scheduled_run
+
+    conn = isolated_db.get_db()
+    try:
+        _source(conn, "Active", "active-feed")
+        run_id = enqueue_scheduled_run(conn)
+        run = conn.execute(
+            "SELECT status, trigger_type FROM runs WHERE id=?", (run_id,)
+        ).fetchone()
+        assert run["status"] == "queued"
+        assert run["trigger_type"] == "scheduled"
+        assert conn.execute(
+            "SELECT count(*) FROM run_sources WHERE run_id=?", (run_id,)
+        ).fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_execute_run_sends_kindle_after_summarization(isolated_db, monkeypatch):
+    """Kindle delivery happens in the worker, after digests are regenerated."""
+    import app.orchestration as orchestration
+    from app.kindle import service as kindle_service
+
+    conn = isolated_db.get_db()
+    try:
+        _source(conn, "Active", "active-feed")
+        run_id = isolated_db.create_run(conn, "scheduled")
+        run = isolated_db.get_run(conn, run_id)
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(
+        orchestration, "run_scrape",
+        lambda *a, **k: {"articles_new": 0, "errors": []},
+    )
+    monkeypatch.setattr(
+        orchestration, "run_youtube_scrape",
+        lambda *a, **k: {"videos_new": 0, "errors": []},
+    )
+    monkeypatch.setattr(
+        orchestration, "process_pending_transcripts",
+        lambda *a, **k: {},
+    )
+    monkeypatch.setattr(
+        orchestration, "run_summarization",
+        lambda *a, **k: {
+            "articles_processed": 0,
+            "digests_regenerated": {"rss": ["2026-10-18"], "youtube": []},
+        },
+    )
+
+    calls = {}
+
+    def fake_kindle(*, regenerated=None):
+        calls["regenerated"] = regenerated
+        return {"enabled": True, "results": []}
+
+    monkeypatch.setattr(kindle_service, "send_digests_to_kindle", fake_kindle)
+
+    orchestration.execute_run(run)
+
+    assert calls["regenerated"] == {"rss": ["2026-10-18"], "youtube": []}
+    conn = isolated_db.get_db()
+    try:
+        assert conn.execute(
+            "SELECT status FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0] == "no_new_content"
+    finally:
+        conn.close()

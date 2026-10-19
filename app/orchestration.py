@@ -2,13 +2,32 @@
 
 import logging
 
-from app.database import get_db, update_run
+from app.database import create_run, get_db, update_run
 from app.scraper.service import run_scrape
 from app.scraper.youtube.service import run_youtube_scrape
 from app.summarizer.service import run_summarization
 from app.transcripts import process_pending_transcripts
 
 logger = logging.getLogger(__name__)
+
+
+def enqueue_scheduled_run(conn=None) -> int:
+    """Create a durable scheduled run for the worker to execute.
+
+    The app process only enqueues; the worker is the single writer that runs
+    the scrape/transcript/summarize/Kindle pipeline. This prevents the
+    app-vs-worker race that caused duplicate summarization and stale Kindle
+    exports.
+    """
+    own_conn = conn is None
+    conn = conn or get_db()
+    try:
+        run_id = create_run(conn, "scheduled")
+        logger.info("Enqueued scheduled run #%s", run_id)
+        return run_id
+    finally:
+        if own_conn:
+            conn.close()
 
 
 def execute_run(run: dict) -> None:
@@ -73,6 +92,17 @@ def execute_run(run: dict) -> None:
                    DO UPDATE SET status='completed', digest_id=excluded.digest_id""",
                 (run_id, row["source_type"], row["digest_date"], digest["id"] if digest else None),
             )
+        # Kindle delivery runs here, in the worker (the single writer), after
+        # the digests have settled. A delivery failure must never fail the run.
+        try:
+            from app.kindle.service import send_digests_to_kindle
+            counters["kindle"] = send_digests_to_kindle(
+                regenerated=(summary or {}).get("digests_regenerated"),
+            )
+            logger.info("Kindle delivery done: %s", counters["kindle"])
+        except Exception:
+            logger.exception("Kindle delivery failed; continuing run")
+
         new_count = counters.get("rss", {}).get("articles_new", 0) + counters.get("youtube", {}).get("videos_new", 0)
         final_status = "partial" if errors else ("no_new_content" if new_count == 0 and summary.get("articles_processed", 0) == 0 else "completed")
         update_run(conn2, run_id, stage="complete", status=final_status, counters=counters, errors=errors)

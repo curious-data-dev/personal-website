@@ -8,7 +8,6 @@ Single process that runs:
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
@@ -16,11 +15,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import init_db
+from app.orchestration import enqueue_scheduled_run
 from app.web.routes import router as web_router
-from app.scraper.service import run_scrape
-from app.scraper.youtube.service import run_youtube_scrape
-from app.summarizer.service import run_summarization
-from app.transcripts import process_pending_transcripts
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -47,65 +43,21 @@ scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
     id="daily_scrape_and_summarize",
 )
 def daily_scrape_and_summarize() -> None:
-    """Run daily at configured time (default 8:00 PM IST).
+    """Enqueue the daily pipeline for the worker to execute.
 
-    1. Scrape all RSS feeds → store raw articles in SQLite
-    2. Scrape YouTube channels → fetch transcripts → store
-    3. Summarize all raw articles → store summaries
-    4. Generate RSS daily digest + YouTube daily digest
-    5. Email yesterday's (and any refreshed older) digest(s) to Kindle
+    The app process only serves web traffic and schedules the job. Keeping the
+    heavy pipeline in the worker gives a single writer (no app/worker race) and
+    lets a run survive app restarts. The worker runs scrape → transcripts →
+    summarization/digests → Kindle.
     """
     logger.info("=" * 60)
-    logger.info("DAILY JOB STARTED — Scrape + Summarize")
+    logger.info("DAILY JOB — enqueueing scheduled run")
     logger.info("=" * 60)
-
-    total_new = 0
-    summary_stats: dict = {}
-
     try:
-        # Phase 1: RSS feeds
-        logger.info("▶ Phase 1/5: Scraping RSS feeds...")
-        scrape_stats = run_scrape()
-        logger.info(f"RSS scrape done: {scrape_stats}")
-        total_new += scrape_stats.get("articles_new", 0)
-
-        # Phase 2: YouTube channels — discover videos, defer transcripts
-        logger.info("▶ Phase 2/5: Scraping YouTube channels...")
-        yt_stats = run_youtube_scrape(defer_transcripts=True)
-        logger.info(f"YouTube scrape done: {yt_stats}")
-        total_new += yt_stats.get("videos_new", 0)
-
-        # Phase 3: Process transcripts through provider chain
-        #         (direct → supadata → ...). On local: direct works.
-        #         On VPS: direct blocked → falls back to supadata.
-        logger.info("▶ Phase 3/5: Processing transcripts...")
-        transcript_stats = process_pending_transcripts()
-        logger.info(f"Transcript processing done: {transcript_stats}")
-        total_new += transcript_stats.get("completed", 0)
-
-        # Phase 4: Summarization
-        logger.info(f"▶ Phase 4/5: Summarizing new items + checking for stale digests...")
-        summary_stats = run_summarization()
-        logger.info(f"Summarization & digests done: {summary_stats}")
-
-    except Exception as e:
-        logger.exception("Daily job failed!")
-
-    # Phase 5: Kindle delivery — email yesterday's digest(s) (plus any older
-    # digest regenerated above) as EPUBs. Never sends today's. Isolated from the
-    # pipeline above so a delivery error can never fail the daily DAG.
-    try:
-        logger.info("▶ Phase 5/5: Sending digests to Kindle...")
-        from app.kindle.service import send_digests_to_kindle
-
-        kindle_stats = send_digests_to_kindle(
-            regenerated=(summary_stats or {}).get("digests_regenerated"),
-        )
-        logger.info(f"Kindle delivery done: {kindle_stats}")
+        run_id = enqueue_scheduled_run()
+        logger.info(f"Enqueued scheduled run #{run_id}; worker will execute it.")
     except Exception:
-        logger.exception("Kindle delivery failed!")
-
-    logger.info("DAILY JOB COMPLETE")
+        logger.exception("Failed to enqueue scheduled run")
     logger.info("=" * 60)
 
 

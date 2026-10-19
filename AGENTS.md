@@ -466,6 +466,30 @@ These are DONE — a fresh agent must know they exist and where, to avoid
 - **Runtime note**: paced at ≤14 RPM, a busy day takes a few extra minutes —
   fine for the overnight run. DeepSeek is now a genuine last resort.
 
+### 6.14 Single-writer pipeline: app enqueues, worker executes ✅ DONE (2026-10-19)
+- **Problem**: the app's 08:00 scheduler ran the full pipeline inline while the
+  worker independently drained transcripts and called `run_summarization()`.
+  Both could select the same `status='raw'` articles, so summaries (and Gemini
+  calls) were duplicated, digests were regenerated concurrently, SQLite hit
+  `database is locked`, and the Kindle phase could send a digest snapshot taken
+  mid-update (e.g. the Oct 18 RSS EPUB had 1 article vs the final 4).
+- **Fix (Option A)**:
+  - `app/main.py`: the scheduler now only calls `enqueue_scheduled_run()`; the
+    app no longer runs scrape/summarize.
+  - `app/orchestration.py`: owns the whole pipeline; `execute_run()` now also
+    sends the Kindle digests after summarization (isolated in its own
+    try/except, so a delivery failure never fails the run).
+  - `app/web/routes.py` `POST /api/runs`: only enqueues (`status=queued`); the
+    worker claims and executes it. No app-thread execution.
+  - `app/worker.py`: logs the claimed run and remains the only executor.
+- **Operational note**: the worker must be running for scheduled runs to
+  execute. Docker Compose already runs it; for local dev run
+  `python -m app.worker` alongside uvicorn.
+- **Still manual/racy**: `/admin/scrape`, `/admin/summarize` and
+  `/admin/youtube/scrape` still run inline in the app. They are user-triggered
+  overrides and should be migrated to enqueue runs if the app is to be strictly
+  read-only.
+
 ## 7. Environment / Config (app/config.py)
 
 Key settings (env-overridable via `.env`):

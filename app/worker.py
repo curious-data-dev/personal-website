@@ -33,6 +33,7 @@ def main() -> None:
         finally:
             conn.close()
         if run:
+            logger.info("Claimed run #%s (%s)", run["id"], run["trigger_type"])
             execute_run(run)
         else:
             transcript_stats = process_pending_transcripts()
