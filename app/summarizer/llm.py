@@ -40,9 +40,6 @@ _usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "errors": 0, "waited_seco
 _usage_lock = threading.Lock()
 _last_provider: str = ""
 
-_rate_table_warned = False
-
-
 class RateLimitExhausted(RuntimeError):
     """A provider's daily quota is used up — do not wait, fall back instead."""
 
@@ -74,6 +71,9 @@ class ProviderRateLimiter:
     All limits are 0 by default (= disabled).
     """
 
+    # Retries before the limiter fails closed on a locked/unavailable DB.
+    DB_MAX_ATTEMPTS = 5
+
     def __init__(
         self,
         provider: str,
@@ -95,8 +95,13 @@ class ProviderRateLimiter:
         return bool(self.rpm or self.tpm or self.rpd)
 
     def acquire(self, tokens: int, on_wait=None) -> float:
-        """Block until `tokens` fit the RPM/TPM/RPD budget. Returns seconds waited."""
-        global _rate_table_warned
+        """Block until `tokens` fit the RPM/TPM/RPD budget. Returns seconds waited.
+
+        Fails **closed**: if the limiter's SQLite state cannot be read or written
+        (e.g. the main connection holds a write lock), it retries with backoff
+        and then raises RateLimitExhausted. It never proceeds unthrottled — that
+        silently disabled pacing and overstated headroom on the free tier.
+        """
         if not self.enabled:
             return 0.0
 
@@ -105,12 +110,22 @@ class ProviderRateLimiter:
             tokens = min(tokens, self.tpm)  # a single oversized request can't fit
 
         waited = 0.0
+        db_attempts = 0
         while True:
             try:
                 conn = get_db()
-            except Exception as e:  # pragma: no cover - defensive
-                logger.warning(f"Rate limiter DB unavailable, proceeding unthrottled: {e}")
-                return waited
+            except Exception as e:
+                db_attempts += 1
+                if db_attempts >= self.DB_MAX_ATTEMPTS:
+                    raise RateLimitExhausted(
+                        f"{self.provider}: rate limiter DB unavailable ({e})"
+                    ) from e
+                delay = min(0.5 * (2 ** (db_attempts - 1)), 4.0)
+                logger.warning(
+                    "Rate limiter DB unavailable (%s); retrying in %.1fs", e, delay
+                )
+                time.sleep(delay)
+                continue
             try:
                 conn.execute("BEGIN IMMEDIATE")
                 now = time.time()
@@ -160,13 +175,17 @@ class ProviderRateLimiter:
             except RateLimitExhausted:
                 raise
             except Exception as e:
-                if not _rate_table_warned:
-                    logger.warning(
-                        f"Rate limiter table unavailable ({e}); proceeding unthrottled. "
-                        "Is migration 011 applied?"
-                    )
-                    _rate_table_warned = True
-                return waited
+                db_attempts += 1
+                if db_attempts >= self.DB_MAX_ATTEMPTS:
+                    raise RateLimitExhausted(
+                        f"{self.provider}: rate limiter unavailable ({e})"
+                    ) from e
+                delay = min(0.5 * (2 ** (db_attempts - 1)), 4.0)
+                logger.warning(
+                    "Rate limiter table unavailable (%s); retrying in %.1fs", e, delay
+                )
+                time.sleep(delay)
+                continue
             finally:
                 conn.close()
 

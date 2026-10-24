@@ -1,15 +1,14 @@
-"""Summarization service - Map-Reduce orchestration.
+"""Summarization service - article summaries and digest generation.
 
 Pipeline:
 1. Query raw articles from DB (status='raw')
-2. For each article:
-   a. If short enough → summarize directly
-   b. If long → chunk → parallel map (summarize each chunk) → reduce (synthesize)
+2. Summarize each article in a single LLM call (no chunk/reduce; the model's
+   context window comfortably covers the truncated article)
 3. After all articles are summarized → generate daily digest
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import re
 from datetime import datetime, timezone, timedelta
 
 from app.config import settings
@@ -19,7 +18,6 @@ from app.database import (
     get_raw_articles_for_source,
     update_article_status,
     update_article_summary,
-    update_article_condensed_summary,
     get_articles_for_date,
     get_digest_for_date,
     insert_daily_digest,
@@ -28,22 +26,24 @@ from app.database import (
     insert_youtube_digest,
     link_videos_to_youtube_digest,
 )
-from app.summarizer.chunker import chunk_article
 from app.summarizer.llm import (
     call_llm,
     get_last_provider,
     is_rate_limit_error,
-    estimate_tokens,
 )
-from app.prompts.manager import prompt_manager
+from app.prompts.manager import (
+    DIGEST_MERGE,
+    RSS_STORY_EXTRACT,
+    RSS_SUMMARY,
+    YOUTUBE_STORY_EXTRACT,
+    YOUTUBE_SUMMARY,
+    prompt_manager,
+)
 
 logger = logging.getLogger(__name__)
 
 # How many articles to process in one summarization run
 BATCH_SIZE = 50
-
-# How many parallel chunk-summarization calls per article
-MAX_CHUNK_WORKERS = 5
 
 # How many articles to summarize in parallel
 MAX_ARTICLE_WORKERS = 3
@@ -118,9 +118,8 @@ def run_summarization(
 
                 logger.info(f"Summarizing article #{article_id}: {title[:80]}")
                 is_youtube = item_source_type == "youtube"
-                prompt_name = "youtube_summary" if is_youtube else "single_summary"
-                reduce_prompt_name = "youtube_reduce_synthesis" if is_youtube else "reduce_synthesis"
-                summary, chunk_count, provider = _summarize_article(raw_text, prompt_name=prompt_name, reduce_prompt_name=reduce_prompt_name)
+                prompt_name = YOUTUBE_SUMMARY if is_youtube else RSS_SUMMARY
+                summary, chunk_count, provider = _summarize_article(raw_text, prompt_name=prompt_name)
 
                 update_article_summary(conn, article_id, summary, chunk_count, provider)
                 if published_date:
@@ -252,120 +251,25 @@ def run_summarization(
 # ---------------------------------------------------------------------------
 
 
-def _summarize_article(raw_text: str, prompt_name: str = "single_summary", reduce_prompt_name: str = "reduce_synthesis") -> tuple[str, int, str]:
-    """Summarize a single article using map-reduce if it's long.
+def _summarize_article(raw_text: str, prompt_name: str = RSS_SUMMARY) -> tuple[str, int, str]:
+    """Summarize a single article in one LLM call.
 
-    Returns (summary_text, chunk_count, provider_used).
+    No chunk/reduce: the article is truncated to settings.max_article_chars,
+    which is sized so one request stays inside the per-minute token budget at
+    the configured RPM. Chunking two summaries together lost detail without
+    helping the final digest (see docs/superpowers/plans/2026-10-24-...).
+
+    Returns (summary_text, chunk_count, provider_used); chunk_count is kept at
+    1 for schema compatibility.
     """
-    # Truncate overly long articles
     if len(raw_text) > settings.max_article_chars:
         raw_text = raw_text[: settings.max_article_chars]
 
-    # If short enough, summarize directly
-    if len(raw_text) <= settings.chunk_size:
-        summary = call_llm(prompt_manager.get_prompt(prompt_name).format(text=raw_text))
-        return summary, 1, get_last_provider()
-
-    # Map-Reduce: chunk → parallel summarize → synthesize
-    chunks = chunk_article(raw_text)
-    if not chunks:
-        return "", 0, ""
-
-    if len(chunks) == 1:
-        summary = call_llm(prompt_manager.get_prompt(prompt_name).format(text=chunks[0]))
-        return summary, 1, get_last_provider()
-
-    # MAP phase: summarize each chunk in parallel
-    sub_summaries: list[str] = []
-    with ThreadPoolExecutor(max_workers=MAX_CHUNK_WORKERS) as executor:
-        futures = {
-            executor.submit(call_llm, prompt_manager.get_prompt("chunk_summary").format(text=c)): i
-            for i, c in enumerate(chunks)
-        }
-        for future in as_completed(futures):
-            try:
-                sub_summaries.append(future.result())
-            except Exception as e:
-                logger.error(f"Chunk summarization failed: {e}")
-                # Don't lose the entire article for one failed chunk
-                sub_summaries.append("[chunk failed to summarize]")
-
-    if not sub_summaries:
-        return "", 0, ""
-
-    # REDUCE phase: synthesize sub-summaries into one cohesive summary.
-    # Group the sub-summaries so no single reduce request exceeds the
-    # per-minute token budget (a request that can't fit the window can never
-    # succeed, no matter how many times we retry). If the merged output of the
-    # per-group results would itself exceed the budget, reduce again
-    # hierarchically until a single summary remains.
-    reduce_template = prompt_manager.get_prompt(reduce_prompt_name)
-    budget = settings.llm_input_tokens_per_min
-    prompt_overhead = estimate_tokens(reduce_template)
-
-    def _fit_groups(texts: list[str]) -> list[list[str]]:
-        """Pack texts into groups where each group fits the token budget.
-
-        The template is included once per request, so overhead is counted once
-        per group (not once per text).
-        """
-        groups: list[list[str]] = []
-        current: list[str] = []
-        current_tokens = prompt_overhead
-        for s in texts:
-            s_tokens = estimate_tokens(s)
-            if current and current_tokens + s_tokens > budget:
-                groups.append(current)
-                current = [s]
-                current_tokens = prompt_overhead + s_tokens
-            else:
-                current.append(s)
-                current_tokens += s_tokens
-        if current:
-            groups.append(current)
-        return groups
-
-    results = sub_summaries
-    max_passes = len(sub_summaries) + 1  # hard cap against pathological non-convergence
-    for _ in range(max_passes):
-        if len(results) <= 1:
-            break
-        groups = _fit_groups(results)
-        results = [
-            call_llm(reduce_template.format(sub_summaries="\n\n---\n\n".join(group)))
-            for group in groups
-        ]
-
-    if not results:
-        return "", 0, ""
-    return results[0], len(chunks), get_last_provider()
-
-
-def _get_condensed_summary(conn, article: dict) -> str:
-    """Return a digest-ready condensed summary, caching it on the article row.
-
-    The full article summary stays untouched (per-article detail preserved);
-    this shorter form keeps the aggregated daily-digest prompt well under the
-    per-minute token budget even for days with many articles.
-    """
-    cached = article.get("condensed_summary")
-    if cached:
-        return cached
-
-    full = article.get("summary_text") or ""
-    if len(full) <= settings.condense_target_chars:
-        condensed = full
-    else:
-        try:
-            condensed = call_llm(
-                prompt_manager.get_prompt("condense_summary").format(text=full),
-                model=settings.gemini_condense_model,
-            )
-        except Exception as e:
-            logger.warning(f"Condensation failed for article #{article.get('id')}: {e}")
-            condensed = full[: settings.condense_target_chars]
-    update_article_condensed_summary(conn, article["id"], condensed)
-    return condensed
+    summary = call_llm(
+        prompt_manager.get_prompt(prompt_name).format(text=raw_text),
+        max_tokens=settings.article_max_output_tokens,
+    )
+    return summary, 1, get_last_provider()
 
 
 # ---------------------------------------------------------------------------
@@ -406,9 +310,9 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
             on_progress(f"Extracting stories from article {i}/{len(articles)}: {a['title'][:50]}")
         try:
             chunk = call_llm(
-                prompt_manager.get_prompt("digest_story_extract").format(
+                prompt_manager.get_prompt(RSS_STORY_EXTRACT).format(
                     ref_num=i,
-                    summary=_get_condensed_summary(conn, a),
+                    summary=a.get("summary_text") or "",
                 ),
                 provider=provider,
                 model=model or settings.gemini_digest_model,
@@ -419,7 +323,7 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
             logger.warning(f"Story extraction failed for article #{a['id']}: {e}")
             # Fall back to a single bullet with the whole condensed summary so
             # the article is still represented rather than silently dropped.
-            chunk = f"- **{a['title']}** — {(_get_condensed_summary(conn, a))[:800]} [{i}]"
+            chunk = f"- **{a['title']}** — {(a.get('summary_text') or '')[:800]} [{i}]"
         story_bullets.append(chunk.strip())
 
     # PHASE 2 — Merge: organize the pre-extracted bullets into sections +
@@ -428,7 +332,7 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
     if on_progress: on_progress("Merging story bullets into the digest...")
     all_bullets = "\n\n".join(story_bullets)
     digest_text = call_llm(
-        prompt_manager.get_prompt("digest_merge").format(
+        prompt_manager.get_prompt(DIGEST_MERGE).format(
             date=date_str,
             story_bullets=all_bullets,
         ),
@@ -437,6 +341,7 @@ def _generate_daily_digest(conn, date_str: str, provider: str | None = None, mod
         max_tokens=settings.llm_digest_max_output_tokens,
         on_progress=on_progress,
     )
+    digest_text = _strip_placeholder_sections(digest_text)
 
     # Convert in-text [N] and [N][M] tags to clickable markdown links
     import re
@@ -526,7 +431,7 @@ def _generate_youtube_daily_digest(
             chunk = call_llm(
                 _get_digest_extract_prompt(is_youtube=True).format(
                     ref_num=i,
-                    summary=_get_condensed_summary(conn, v),
+                    summary=v.get("summary_text") or "",
                 ),
                 provider=provider,
                 model=model or settings.gemini_digest_model,
@@ -535,7 +440,7 @@ def _generate_youtube_daily_digest(
             )
         except Exception as e:
             logger.warning(f"Topic extraction failed for video #{v['id']}: {e}")
-            chunk = f"- **{v['title']}** — {(_get_condensed_summary(conn, v))[:800]} [{i}]"
+            chunk = f"- **{v['title']}** — {(v.get('summary_text') or '')[:800]} [{i}]"
         story_bullets.append(chunk.strip())
 
     # PHASE 2 — Merge: organize the pre-extracted topic bullets into the digest.
@@ -543,7 +448,7 @@ def _generate_youtube_daily_digest(
         on_progress("Merging topic bullets into the YouTube digest...")
     all_bullets = "\n\n".join(story_bullets)
     digest_text = call_llm(
-        prompt_manager.get_prompt("digest_merge").format(
+        prompt_manager.get_prompt(DIGEST_MERGE).format(
             date=date_str,
             story_bullets=all_bullets,
         ),
@@ -552,6 +457,7 @@ def _generate_youtube_daily_digest(
         max_tokens=settings.llm_digest_max_output_tokens,
         on_progress=on_progress,
     )
+    digest_text = _strip_placeholder_sections(digest_text)
 
     # Convert in-text [N] and [N][M] tags to clickable markdown links
     import re
@@ -608,22 +514,46 @@ def _generate_youtube_daily_digest(
 def _get_digest_extract_prompt(is_youtube: bool = False) -> str:
     """Story-extraction prompt for digest Phase 1.
 
-    YouTube uses its own more detailed variant (youtube_digest_story_extract)
-    because a YouTube digest covers only a handful of videos a day, so each
-    video's block can be written much more thoroughly than an RSS article's.
-    Falls back to the shared RSS prompt if the YouTube file is missing.
+    YouTube uses its own more detailed variant (youtube_story_extract) because a
+    YouTube digest covers only a handful of videos a day, so each video's block
+    can be written much more thoroughly than an RSS article's.
+
+    A missing template raises PromptNotFoundError; it does NOT silently fall
+    back to the other variant, since that would change digest depth unnoticed.
     """
-    if is_youtube:
-        youtube_prompt = prompt_manager.get_prompt("youtube_digest_story_extract")
-        if youtube_prompt:
-            return youtube_prompt
-    return prompt_manager.get_prompt("digest_story_extract")
+    name = YOUTUBE_STORY_EXTRACT if is_youtube else RSS_STORY_EXTRACT
+    return prompt_manager.get_prompt(name)
 
 
 def _today_ist_str() -> str:
     """Return today's date in IST as ISO string (YYYY-MM-DD)."""
     ist = timezone(timedelta(hours=5, minutes=30))
     return datetime.now(ist).strftime("%Y-%m-%d")
+
+
+_PLACEHOLDER_SECTION_RE = re.compile(r"^#{2,3}\s*Sections?\s*:?\s*$", re.IGNORECASE)
+
+
+def _strip_placeholder_sections(text: str) -> str:
+    """Remove a stray "## Sections" outline heading emitted by the merge model.
+
+    Older merge prompts contained a literal ``## Sections`` line as an outline
+    marker, and the model sometimes copied it into the digest. If the model
+    nested real sections beneath it as ``###``, promote them to ``##`` so they
+    still render at section level. Content is never dropped.
+    """
+    out: list[str] = []
+    promote_next = False
+    for line in text.splitlines():
+        if _PLACEHOLDER_SECTION_RE.match(line):
+            promote_next = True
+            continue
+        if promote_next and line.startswith("### "):
+            line = "## " + line[4:]
+        elif line.strip():
+            promote_next = False
+        out.append(line)
+    return "\n".join(out)
 
 
 def _format_date_pretty(date_str: str) -> str:

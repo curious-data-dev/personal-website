@@ -1,5 +1,5 @@
-"""Tests for summarization resilience: requeue on rate-limit, digest condensation,
-and grouped reduce that keeps requests under the token budget."""
+"""Tests for summarization resilience: requeue on rate-limit and the digest
+pipeline reading full article summaries (no condense step)."""
 
 import pytest
 
@@ -72,13 +72,14 @@ def test_non_rate_limit_error_marks_article_failed(isolated_db, monkeypatch):
         conn.close()
 
 
-def test_digest_uses_condensed_summaries_and_caches_them(isolated_db, monkeypatch):
+def test_digest_uses_full_summaries(isolated_db, monkeypatch):
     conn = isolated_db.get_db()
     source_id = _source(conn)
+    long_summary = "d" * 5000
     article_id = _insert_article(conn, source_id, status="summarized")
     conn.execute(
         "UPDATE articles SET summary_text=? WHERE id=?",
-        ("d" * 5000, article_id),
+        (long_summary, article_id),
     )
     conn.commit(); conn.close()
 
@@ -86,8 +87,6 @@ def test_digest_uses_condensed_summaries_and_caches_them(isolated_db, monkeypatc
 
     def fake_call_llm(prompt, **kwargs):
         prompts.append(prompt)
-        if "CONDENSED SUMMARY" in prompt:
-            return "Condensed: key facts preserved."
         if "STORY BULLETS" in prompt:
             return "- **Story** — What happened: key facts. [1]"
         return "DIGEST OUTPUT"
@@ -102,28 +101,27 @@ def test_digest_uses_condensed_summaries_and_caches_them(isolated_db, monkeypatc
     finally:
         conn.close()
 
-    # Condensation call happened before the extract call.
-    assert any("CONDENSED SUMMARY" in p for p in prompts)
-    # The per-article extract prompt must embed the condensed text, not the raw summary.
+    # There is no condensation call any more.
+    assert not any("CONDENSED SUMMARY" in p for p in prompts)
+    # The per-article extract prompt embeds the full stored summary.
     extract_prompt = [p for p in prompts if "STORY BLOCKS" in p or "STORY BULLETS" in p]
-    assert extract_prompt and "Condensed: key facts preserved." in extract_prompt[0]
-    assert "d" * 2000 not in extract_prompt[0]
+    assert extract_prompt and long_summary in extract_prompt[0]
     # The merge pass must receive the extracted story bullets.
     merge_prompt = [p for p in prompts if "DAILY DIGEST" in p]
     assert merge_prompt and "DIGEST OUTPUT" in merge_prompt[0]
 
-    # Condensed summary cached on the article row for reuse.
+    # condensed_summary is no longer written.
     conn = isolated_db.get_db()
     try:
         cached = conn.execute(
             "SELECT condensed_summary FROM articles WHERE id=?", (article_id,)
         ).fetchone()["condensed_summary"]
-        assert cached == "Condensed: key facts preserved."
+        assert cached is None
     finally:
         conn.close()
 
 
-def test_short_summaries_skip_condensation_call(isolated_db, monkeypatch):
+def test_digest_makes_only_extract_and_merge_calls(isolated_db, monkeypatch):
     conn = isolated_db.get_db()
     source_id = _source(conn)
     article_id = _insert_article(conn, source_id, status="summarized")
@@ -147,48 +145,88 @@ def test_short_summaries_skip_condensation_call(isolated_db, monkeypatch):
     finally:
         conn.close()
 
-    # Short summaries skip condensation, so exactly 2 calls: story extract + merge.
+    # Story extract + merge only (no condensation call).
     assert calls["n"] == 2
 
 
-def test_reduce_groups_subsummaries_under_token_budget(monkeypatch):
-    """Long articles whose combined sub-summaries exceed the budget must be
-    reduced in multiple passes so no single request exceeds the TPM limit."""
+def test_summarize_article_is_single_pass_and_truncates(monkeypatch):
+    """One call per article, truncated at max_article_chars, with the article
+    output cap — no chunk/reduce calls."""
 
-    class FakeSettings:
-        chunk_size = 1000
-        chunk_overlap = 0
-        max_article_chars = 10000
-        llm_input_tokens_per_min = 500  # deliberately tiny budget
-        rate_limit_window_seconds = 60
-
-    monkeypatch.setattr(service.settings, "chunk_size", FakeSettings.chunk_size)
-    monkeypatch.setattr(service.settings, "chunk_overlap", FakeSettings.chunk_overlap)
-    monkeypatch.setattr(service.settings, "max_article_chars", FakeSettings.max_article_chars)
-    monkeypatch.setattr(service.settings, "llm_input_tokens_per_min", 500)
-    monkeypatch.setattr(service.settings, "rate_limit_window_seconds", 60)
-    # Disable provider pacing; this test only exercises the reduce grouping.
-    monkeypatch.setattr(llm, "_LIMITERS", {})
-
-    reduce_calls = {"n": 0, "inputs": []}
+    calls = []
 
     def fake_call_llm(prompt, **kwargs):
-        if "SUB-SUMMARIES:" in prompt:  # reduce_synthesis prompt
-            reduce_calls["n"] += 1
-            reduce_calls["inputs"].append(len(prompt))
-            return "reduced"
-        return "chunk summary " + "x" * 1200  # ~300-token chunk summaries
+        calls.append((prompt, kwargs))
+        return "summary"
+
+    monkeypatch.setattr(service, "call_llm", fake_call_llm)
+    monkeypatch.setattr(service.settings, "max_article_chars", 1000)
+    monkeypatch.setattr(service.settings, "article_max_output_tokens", 6144)
+
+    text = "y" * 5000
+    summary, chunk_count, _provider = service._summarize_article(text)
+
+    assert summary == "summary"
+    assert chunk_count == 1
+    assert len(calls) == 1
+    prompt, kwargs = calls[0]
+    assert "y" * 1000 in prompt
+    assert "y" * 1001 not in prompt
+    assert kwargs["max_tokens"] == 6144
+
+
+
+def test_strip_placeholder_sections_heading():
+    text = (
+        "## Today's Highlights\n\nHi.\n\n## Sections\n\n"
+        "## ⚖️ Politics\n\nBody.\n\n## 💡 Key Takeaway\n- x"
+    )
+    out = service._strip_placeholder_sections(text)
+    assert "## Sections" not in out
+    assert "## ⚖️ Politics" in out
+    assert "Body." in out
+
+
+def test_strip_placeholder_sections_promotes_nested_headings():
+    out = service._strip_placeholder_sections("## Sections\n### ⚖️ Politics\nBody")
+    assert out.splitlines()[0] == "## ⚖️ Politics"
+
+
+def test_strip_placeholder_sections_leaves_normal_digest_untouched():
+    text = "## Today's Highlights\nHi.\n\n## 💡 Key Takeaway\n- x"
+    assert service._strip_placeholder_sections(text) == text
+
+
+def test_digest_output_has_no_placeholder_sections(isolated_db, monkeypatch):
+    conn = isolated_db.get_db()
+    source_id = _source(conn)
+    article_id = _insert_article(conn, source_id, status="summarized")
+    conn.execute("UPDATE articles SET summary_text='facts' WHERE id=?", (article_id,))
+    conn.commit(); conn.close()
+
+    digest_text = (
+        "## Today's Highlights\nHi.\n\n## Sections\n\n"
+        "## ⚖️ Politics\n\nBody.\n\n## 💡 Key Takeaway\n- **X:** y [1]"
+    )
+
+    def fake_call_llm(prompt, **kwargs):
+        if "STORY BULLETS" in prompt:
+            return "- **Story** — What happened. [1]"
+        return digest_text
 
     monkeypatch.setattr(service, "call_llm", fake_call_llm)
     monkeypatch.setattr(llm, "call_llm", fake_call_llm)
 
-    text = "y" * 3500  # → ~4 chunks of 1000 chars
-    summary, chunk_count, provider = service._summarize_article(text)
+    conn = isolated_db.get_db()
+    try:
+        service._generate_daily_digest(conn, "2026-08-05")
+        conn.commit()
+        saved = conn.execute(
+            "SELECT summary_text FROM daily_digests WHERE date='2026-08-05'"
+        ).fetchone()["summary_text"]
+    finally:
+        conn.close()
 
-    assert chunk_count == 4
-    # With ~300-token sub-summaries and a 500-token budget, more than one
-    # reduce pass (group + merge) is required.
-    assert reduce_calls["n"] >= 2
-    # No single reduce input may exceed the configured per-minute budget.
-    for inp in reduce_calls["inputs"]:
-        assert inp // 4 <= 500
+    assert "## Sections" not in saved
+    assert "## ⚖️ Politics" in saved
+    assert "Body." in saved

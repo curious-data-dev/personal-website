@@ -80,7 +80,10 @@ class Settings(BaseSettings):
     youtube_job_max_attempts: int = 5
 
     # Summarization
-    max_article_chars: int = 15000
+    max_article_chars: int = 50000
+    # Output cap for a single article summary. Must stay small enough that
+    # (input/4 + this) * gemini_rpm_limit <= gemini_tpm_limit.
+    article_max_output_tokens: int = 6144
     min_summary_chars: int = 600
     chunk_size: int = 4000
     chunk_overlap: int = 400

@@ -16,7 +16,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./app:/app/app
-      - ./Main Architechture:/app/Main Architechture
+      - ./prompts:/app/prompts
     env_file:
       - .env
     depends_on:
@@ -30,7 +30,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./app:/app/app
-      - ./Main Architechture:/app/Main Architechture
+      - ./prompts:/app/prompts
     env_file:
       - .env
     depends_on:

@@ -99,6 +99,22 @@ def test_limiter_is_shared_between_connections(isolated_db, fake_clock):
     assert process_b.acquire(1) >= 59
 
 
+def test_limiter_fails_closed_when_db_unavailable(monkeypatch):
+    """A locked/absent DB must never mean 'proceed unthrottled'."""
+    import sqlite3
+
+    def broken_get_db():
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(llm, "get_db", broken_get_db)
+    monkeypatch.setattr(llm.time, "sleep", lambda secs: None)
+
+    limiter = ProviderRateLimiter("gemini", rpm=5, tpm=1000)
+    with pytest.raises(RateLimitExhausted):
+        limiter.acquire(100)
+
+
+
 # ---------------------------------------------------------------------------
 # Fallback chain
 # ---------------------------------------------------------------------------

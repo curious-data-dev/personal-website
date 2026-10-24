@@ -27,3 +27,9 @@ tailwindcss.exe
 .tmp/
 C*.txt
 data/kindle_exports/
+
+# throwaway probes + browser session (never commit)
+scratch/
+
+# local machine notes — contains credentials, must never be committed
+Startup commands*.txt

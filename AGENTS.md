@@ -73,9 +73,11 @@ app/
     renderer.py            # digest markdown → self-contained HTML.
     html2epub.py           # vendored HTML→EPUB converter (from Conversion Folder).
     emailer.py             # Gmail SMTP EPUB attachment sender.
-Main Architechture/prompts/   # ACTUAL prompt templates used (see §5).
-  daily_digest.md, youtube_digest.md, condense_summary.md,
-  single_summary.md, reduce_synthesis.md, chunk_summary.md, ...
+prompts/                 # ACTUAL prompt templates used (see §5). Single source.
+  README.md              # table: logical name → file → stage → placeholders
+  article/               # per-article / per-video summarization (map-reduce)
+  digest/                # condensation + two-phase digest generation
+  _legacy/               # archived, unreferenced prompts (kept for reference)
 scripts/                 # Dev/diagnostic helpers (committed).
   generate_date_digest.py  # regen digest for a date (RSS+YT) — live LLM.
                            # --skip-rss / --skip-youtube for one side only.
@@ -112,10 +114,32 @@ tests/                   # pytest suite. 99 tests, all passing.
 
 ## 5. Prompt Templates (IMPORTANT)
 
-Prompts are loaded from `Main Architechture/prompts/` by `app/prompts/manager.py`
-(resolution order: creator/detail → bare name → built-in fallback). **If you
-edit a prompt template, regenerate existing digests to see the effect** — old
-digests keep their stored text.
+Prompts live in **`prompts/`** (repo root) and are loaded by
+`app/prompts/manager.py`. A logical name *is* the path minus `.md`:
+`"digest/merge"` → `prompts/digest/merge.md`. There is no fallback chain any
+more: a missing template raises `PromptNotFoundError` (fails the run loudly).
+Templates are cached per process, so **editing a prompt requires restarting
+`app` + `worker`**; then regenerate the digest. `prompts/README.md` is the
+authoritative table (stage, placeholders, model, max tokens).
+`PROMPTS_DIR` overrides the folder.
+
+**Layout since 2026-10-24** (old flat filenames → new):
+
+| Old | New |
+|---|---|
+| `single_summary.md` | `article/rss_summary.md` |
+| `chunk_summary.md` | `_legacy/rss_chunk.md` (archived 2026-10-24) |
+| `reduce_synthesis.md` | `_legacy/rss_reduce.md` (archived 2026-10-24) |
+| `youtube_summary.md` | `article/youtube_summary.md` |
+| `youtube_reduce_synthesis.md` | `_legacy/youtube_reduce.md` (archived 2026-10-24) |
+| `condense_summary.md` | `_legacy/condense.md` (archived 2026-10-24) |
+| `digest_story_extract.md` | `digest/rss_story_extract.md` |
+| `youtube_digest_story_extract.md` | `digest/youtube_story_extract.md` |
+| `digest_merge.md` | `digest/merge.md` |
+| `daily_digest.md`, `youtube_digest.md`, `podcast_summary.md` | `_legacy/` (unused) |
+
+The format descriptions below are still accurate; filenames refer to the old
+names.
 
 - `daily_digest.md` — RSS digest. **UNUSED since the extract→merge refactor**
   (kept as reference). Former format (Aug 8):
@@ -526,22 +550,113 @@ These are DONE — a fresh agent must know they exist and where, to avoid
 - **Deployed** 2026-10-24 (`bf8d5b7`) via git bundle; app + worker restarted.
   Verified `kindle_sends` now has `rss` and `youtube` rows for 2026-10-22.
 
+### 6.16 Prompt folder restructured ✅ DONE (2026-10-24, not yet deployed)
+- **Problem**: prompts were in `Main Architechture/prompts/` (space in path,
+  misspelled folder) with a flat namespace, and `app/prompts/manager.py` held a
+  `FALLBACK_PROMPTS` dict of five **drifted inline copies** that silently
+  replaced a missing template. Three files were dead (`daily_digest.md`,
+  `youtube_digest.md`, `podcast_summary.md`), and the loader had an unused
+  4-layer creator/detail resolution chain.
+- **New layout** (repo root `prompts/`, see `prompts/README.md` for the full
+  table): `article/` (rss_summary, rss_chunk, rss_reduce, youtube_summary,
+  youtube_reduce), `digest/` (condense, rss_story_extract,
+  youtube_story_extract, merge), `_legacy/` (the three dead prompts).
+  Logical name = path minus `.md`. **(Superseded in part by §6.17: rss_chunk,
+  rss_reduce, youtube_reduce and condense are now in `_legacy/`.)**
+- **Loader** (`app/prompts/manager.py`): `FALLBACK_PROMPTS` deleted, missing
+  template now raises `PromptNotFoundError`; unused creator/detail chain
+  removed; name→path is a direct lookup (path escapes rejected); `PROMPTS_DIR`
+  env override; caching retained, so **restart app+worker after editing**.
+  Prompt names are constants (`RSS_SUMMARY`, `DIGEST_MERGE`, …) used by
+  `app/summarizer/service.py`. `_get_digest_extract_prompt` no longer silently
+  falls back from the YouTube prompt to the RSS one.
+- **Wiring**: `docker-compose.yml` mounts `./prompts:/app/prompts` (both app and
+  worker) instead of `./Main Architechture`; the image gets it via `COPY . .`.
+- **Tests**: new `tests/test_prompts.py` (26 cases) asserts every active prompt
+  exists, contains its declared placeholders, renders without stray braces,
+  `_legacy` is not active, missing prompts raise, and `PROMPTS_DIR` override
+  works. Suite: **155 passed**.
+- **Output-neutrality proof**: all 9 active templates hashed byte-identical
+  before/after the move (raw file sha256 unchanged for all 12 files; rendered
+  templates identical). A live A/B on a copy of the VPS DB (2026-08-22 RSS,
+  2026-08-23 YouTube — 22 Aug had zero videos) with old code from a `HEAD`
+  worktree vs new code produced the same structure (RSS 19 story blocks, refs
+  1-5; YouTube 2 blocks, refs 1-2). Wording differs run-to-run because
+  `temperature=0.5`; a second run of the **same** new code differed as much as
+  old-vs-new (RSS similarity 0.245 same-code vs 0.228 old-vs-new).
+- **Known pre-existing prompt quirk (not caused by this change)**: the model
+  sometimes leaves the literal `## Sections` heading from `digest/merge.md` in
+  the output, and story-block counts vary 19-23 between runs at temp 0.5.
+- **Not yet committed/deployed** at time of writing.
+
+### 6.17 Single-pass article summaries + no condensation ✅ DONE (2026-10-24, not deployed)
+- **What changed** (implements option V2 from the 22 Oct experiment):
+  - `_summarize_article` (`app/summarizer/service.py`) is **one call per
+    article** — no chunk map/reduce, no parallel chunk workers. Input is
+    truncated to `max_article_chars = 50000` (was 15000), output capped at
+    `article_max_output_tokens = 6144` so `(12.2K input + 6.1K output) × 13 RPM
+    ≈ 238K < 250K TPM`.
+  - **Condensation removed**: the digest now reads `articles.summary_text`
+    directly (`_get_condensed_summary` deleted). The `condensed_summary` column
+    stays in the schema but is no longer written.
+  - Prompts archived to `prompts/_legacy/`: `rss_chunk.md`, `rss_reduce.md`,
+    `youtube_reduce.md`, `condense.md`. Active prompts are now just
+    `article/rss_summary`, `article/youtube_summary`,
+    `digest/rss_story_extract`, `digest/youtube_story_extract`, `digest/merge`.
+  - **Limiter fails closed** (`app/summarizer/llm.py`): `acquire()` retries a
+    locked/unavailable DB with backoff (5 attempts) and then raises
+    `RateLimitExhausted`; it no longer logs "proceeding unthrottled" and
+    disables pacing. New test
+    `test_limiter_fails_closed_when_db_unavailable`.
+- **Why** (22 Oct 2026 A/B on a VPS DB snapshot, 6 RSS + 1 YouTube, same model):
+  - V2 (single-pass, no condense): **30 digest stories vs 23**, numeric recall
+    of the day's facts **0.41 vs 0.34**, in **202s vs 613s**, **16 vs 39 calls**,
+    peak 86K tokens/min vs the 250K limit.
+  - Article summaries get shorter (avg 2,984 vs 7,666 chars) — a deliberate
+    trade-off; revisit with a detail target in `article/rss_summary.md` if
+    `/article/{id}` depth matters.
+  - Dropping condense alone (V3) did **not** help, so the gain is the pair.
+  - Full write-up: `docs/superpowers/plans/2026-10-24-pipeline-simplification.md`.
+- **Why the limiter fix was a prerequisite**: during digest generation the main
+  connection held a write transaction (condensed caching) across LLM calls, the
+  limiter's connection timed out, and pacing silently switched off. V2 removes
+  the write, and the limiter now fails closed regardless.
+- **Tests**: 148 pass (chunk/reduce tests replaced with single-pass + full-
+  summary digest tests).
+- **Not deployed**. Regeneration of 2026-10-22 pre/post is the acceptance check.
+- **Pre/post acceptance (2026-10-22, same VPS snapshot):**
+  - RSS stored (pre) → regenerated (post): **18 → 33 story blocks**, 22,748 →
+    31,707 chars, numeric recall of the day's facts **0.290 → 0.367**, month
+    recall 0.667 → 0.750, proper-noun recall 0.357 → 0.413; refs 1-6 both.
+  - YouTube: 5,317 → 4,757 chars, 1 block both, numeric recall 0.071 → 0.086.
+  - Post run: **208 s, 16 LLM calls, peak 56K tokens/min** (limit 250K).
+  - Article summaries are shorter (1.4K-4.5K chars vs 5-13K before).
+  - Known side effects to tune later: the SBI data-leak story appears twice
+    (one per source article) and the AI-security newsletter's product blurbs
+    (Vanta/Town/Nate Grahek etc.) now surface as separate blocks; the merge
+    model still occasionally leaves the literal `## Sections` heading.
+
+
 ## 7. Environment / Config (app/config.py)
 
 Key settings (env-overridable via `.env`):
 - `gemini_model = gemini-3.5-flash-lite` (used for EVERYTHING — summary,
-  condense, digest; upgraded from 3.1 on 2026-10-19 after 503 UNAVAILABLE)
-- `gemini_condense_model = gemini-3.5-flash-lite`
+  digest; upgraded from 3.1 on 2026-10-19 after 503 UNAVAILABLE)
+- `gemini_condense_model = gemini-3.5-flash-lite` (**unused since §6.17** —
+  condensation removed; kept so diagnostics still import)
 - `gemini_digest_model = gemini-3.5-flash-lite`
 - `gemini_rpm_limit = 13`, `gemini_tpm_limit = 230000`, `gemini_rpd_limit = 480`
   (shared SQLite limiter; 0 disables a dimension). DeepSeek limits default to 0.
-- `llm_max_output_tokens = 8192` (article summaries)
-- `llm_digest_max_output_tokens = 32768` (single digest call — ~50-article headroom)
-- `llm_input_tokens_per_min = 200000` (now only caps the reduce-grouping size),
-  `rate_limit_window_seconds = 60`
+- `llm_max_output_tokens = 8192` (default; article summaries now pass
+  `article_max_output_tokens = 6144`)
+- `llm_digest_max_output_tokens = 32768` (merge call — unchanged)
+- `llm_input_tokens_per_min = 200000` (**unused since §6.17** — it only capped
+  reduce grouping), `rate_limit_window_seconds = 60`
 - `lookback_hours = 96`, `stale_digest_window_days = 7`
-- `condense_target_chars = 3000` (~500 words; also skip-if-short threshold + fallback),
-  `max_article_chars = 15000`, `chunk_size = 4000`
+- `condense_target_chars = 3000` (**unused since §6.17**),
+  `max_article_chars = 50000` (raised from 15000; largest observed article is
+  48,846 chars), `article_max_output_tokens = 6144`,
+  `chunk_size = 4000` (only the standalone chunker/diagnostics use it)
 - `scrape_cron_hour = 8` (VPS `.env` sets `SCRAPE_CRON_HOUR=08`, `MINUTE=00` →
   **daily 08:00 IST**)
 - Kindle: `kindle_email` (`@kindle.com` address), `kindle_enabled = True`,
