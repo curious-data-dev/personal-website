@@ -92,6 +92,12 @@ def execute_run(run: dict) -> None:
                    DO UPDATE SET status='completed', digest_id=excluded.digest_id""",
                 (run_id, row["source_type"], row["digest_date"], digest["id"] if digest else None),
             )
+        # Release this connection's write transaction before the Kindle phase.
+        # send_digests_to_kindle opens its own connection; the SMTP send can
+        # take longer than the 5s busy_timeout, and an uncommitted write here
+        # would make recording the send fail with "database is locked" —
+        # aborting the rest of the Kindle candidates (including yesterday's).
+        conn2.commit()
         # Kindle delivery runs here, in the worker (the single writer), after
         # the digests have settled. A delivery failure must never fail the run.
         try:

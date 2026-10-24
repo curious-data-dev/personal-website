@@ -495,6 +495,33 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   digest to `gemini-3.5-flash-lite` (verified HTTP 200) and lowered the RPM cap
   from 14 → 13 as a safety margin.
 
+### 6.15 Kindle batch aborted by "database is locked" ✅ FIXED (2026-10-24)
+- **Symptom**: the daily Kindle email went missing/late from 2026-10-21
+  (e.g. the 22 October digest was never delivered). Runs still completed and
+  the worker log showed `Kindle EPUB sent ...` immediately followed by
+  `Kindle delivery failed; continuing run` /
+  `sqlite3.OperationalError: database is locked` in `upsert_kindle_send()`.
+- **Root cause**: `execute_run()` wrote the run's affected dates on `conn2`
+  but did **not commit** before the Kindle phase. That open write transaction
+  held SQLite's write lock while `send_digests_to_kindle()` (its own
+  connection) tried to record the send. The SMTP send takes ~5s, matching
+  `get_db()`'s `busy_timeout=5000`, so the insert timed out. The exception
+  aborted the whole Kindle loop, so candidates after the first one — often
+  yesterday's digest, because an older refreshed digest sorted first — were
+  never attempted. The email had already been sent, but no `kindle_sends` row
+  was written, so the next run re-sent it (as "Updated").
+- **Fix**:
+  - `app/orchestration.py`: `conn2.commit()` after the affected-dates loop,
+    before the Kindle try/except.
+  - `app/kindle/service.py`: each candidate is wrapped in try/except so one
+    failure cannot skip the rest; yesterday is processed first; a small
+    retry (`_record_kindle_send`) handles a transient lock.
+  - Tests: `test_execute_run_releases_db_lock_before_kindle` (fails without
+    the commit) and
+    `test_kindle_batch_sends_yesterday_first_and_continues_after_failure`.
+- **Backfill**: the missing 22 October RSS + YouTube digests were sent
+  manually with `scripts/send_kindle_digests.py --date 2026-10-22 --type both`.
+
 ## 7. Environment / Config (app/config.py)
 
 Key settings (env-overridable via `.env`):

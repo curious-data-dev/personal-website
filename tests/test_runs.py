@@ -147,3 +147,85 @@ def test_execute_run_sends_kindle_after_summarization(isolated_db, monkeypatch):
         ).fetchone()[0] == "no_new_content"
     finally:
         conn.close()
+
+
+def test_execute_run_releases_db_lock_before_kindle(isolated_db, monkeypatch):
+    """Regression: the Kindle phase must be able to write kindle_sends.
+
+    The affected-dates connection used to keep an uncommitted write
+    transaction open across the (slow) Kindle phase, so recording a send
+    failed with "database is locked" and aborted the remaining candidates.
+    """
+    import app.orchestration as orchestration
+    from app.kindle import service as kindle_service
+
+    conn = isolated_db.get_db()
+    try:
+        source_id = _source(conn, "Active", "active-feed")
+        run_id = isolated_db.create_run(conn, "scheduled")
+        run = isolated_db.get_run(conn, run_id)
+        article_id = isolated_db.insert_article(
+            conn,
+            source_id=source_id,
+            url="article-1",
+            title="Title",
+            published_at="2026-10-18T05:00:00+00:00",
+        )
+        conn.execute(
+            """UPDATE articles SET status='summarized',
+                   published_date_ist='2026-10-18' WHERE id=?""",
+            (article_id,),
+        )
+        conn.execute(
+            "INSERT INTO run_items(run_id, article_id) VALUES (?, ?)",
+            (run_id, article_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(
+        orchestration, "run_scrape",
+        lambda *a, **k: {"articles_new": 0, "errors": []},
+    )
+    monkeypatch.setattr(
+        orchestration, "run_youtube_scrape",
+        lambda *a, **k: {"videos_new": 0, "errors": []},
+    )
+    monkeypatch.setattr(
+        orchestration, "process_pending_transcripts",
+        lambda *a, **k: {},
+    )
+    monkeypatch.setattr(
+        orchestration, "run_summarization",
+        lambda *a, **k: {
+            "articles_processed": 0,
+            "digests_regenerated": {"rss": [], "youtube": []},
+        },
+    )
+
+    outcome = {}
+
+    def fake_kindle(*, regenerated=None):
+        # Separate connection, exactly like the real Kindle service.
+        kc = isolated_db.get_db()
+        try:
+            kc.execute("PRAGMA busy_timeout=200")
+            kc.execute(
+                """INSERT OR REPLACE INTO kindle_sends
+                   (digest_type, digest_date, content_hash)
+                   VALUES ('rss', '2026-10-18', 'test')"""
+            )
+            kc.commit()
+            outcome["ok"] = True
+        except Exception as e:  # pragma: no cover - only on the regression
+            outcome["error"] = repr(e)
+        finally:
+            kc.close()
+        return {"enabled": True, "results": []}
+
+    monkeypatch.setattr(kindle_service, "send_digests_to_kindle", fake_kindle)
+
+    orchestration.execute_run(run)
+
+    assert outcome.get("ok") is True, outcome

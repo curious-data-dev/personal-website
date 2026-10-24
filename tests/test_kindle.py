@@ -226,3 +226,39 @@ def test_disabled_short_circuits(isolated_db, kindle_env, monkeypatch):
     summary = kindle.send_digests_to_kindle()
     assert summary["enabled"] is False
     assert summary["results"] == []
+
+
+def test_kindle_batch_sends_yesterday_first_and_continues_after_failure(
+    isolated_db, kindle_env, monkeypatch
+):
+    """A failure on an older refreshed digest must not block yesterday's send.
+
+    Regression for the 2026-10-23 run: a ``database is locked`` error while
+    recording an older refreshed digest aborted the loop before yesterday's
+    digest (2026-10-22) was ever attempted.
+    """
+    yesterday = "2026-10-22"
+    older = "2026-10-21"
+    calls = []
+
+    def fake_export(conn, digest_type, date_str, **kwargs):
+        calls.append((digest_type, date_str))
+        if date_str == older:
+            raise RuntimeError("simulated export failure")
+        return {"type": digest_type, "date": date_str, "status": "sent"}
+
+    monkeypatch.setattr(kindle, "export_and_send_digest", fake_export)
+
+    summary = kindle.send_digests_to_kindle(
+        regenerated={"rss": [older]}, today="2026-10-23"
+    )
+
+    # Yesterday is attempted first, then the older refreshed digest, then the
+    # YouTube pass (also yesterday).
+    assert calls == [("rss", yesterday), ("rss", older), ("youtube", yesterday)]
+
+    by_key = {(r["type"], r["date"]): r for r in summary["results"]}
+    assert by_key[("rss", yesterday)]["status"] == "sent"
+    assert by_key[("rss", older)]["status"] == "failed"
+    assert "simulated export failure" in by_key[("rss", older)]["reason"]
+    assert by_key[("youtube", yesterday)]["status"] == "sent"

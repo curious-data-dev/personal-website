@@ -14,6 +14,8 @@ Rules:
 
 import hashlib
 import logging
+import sqlite3
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -58,6 +60,29 @@ def _pretty(date_str: str | None) -> str:
 
 def _content_hash(text: str) -> str:
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+def _record_kindle_send(
+    conn, digest_type: str, date_str: str, content_hash: str, attempts: int = 3
+) -> None:
+    """Record a successful send, retrying briefly on a transient DB lock.
+
+    The email is sent before this call, so a lock must not abort the whole
+    Kindle batch (or the send would be re-emailed next run).
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            upsert_kindle_send(conn, digest_type, date_str, content_hash)
+            conn.commit()
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower() or attempt == attempts:
+                raise
+            logger.warning(
+                "kindle_sends locked (attempt %s/%s); retrying in %ss",
+                attempt, attempts, attempt,
+            )
+            time.sleep(attempt)
 
 
 def build_digest_name(
@@ -145,8 +170,7 @@ def export_and_send_digest(
     if not send_kindle_epub(name, epub_path, recipient=recipient):
         return {**artifact, "status": "failed", "reason": "email send failed"}
 
-    upsert_kindle_send(conn, digest_type, date_str, content_hash)
-    conn.commit()
+    _record_kindle_send(conn, digest_type, date_str, content_hash)
     return {**artifact, "status": "sent"}
 
 
@@ -189,19 +213,35 @@ def send_digests_to_kindle(
     conn = get_db()
     try:
         for digest_type in ("rss", "youtube"):
-            for date_str in sorted(candidates[digest_type]):
-                results.append(
-                    export_and_send_digest(
-                        conn,
-                        digest_type,
-                        date_str,
-                        refreshed=date_str < yesterday,
-                        refreshed_date=today,
-                        force=force,
-                        dry_run=dry_run,
-                        recipient=recipient,
+            # Yesterday first: it is the digest the reader expects today, and a
+            # failure on an older refreshed digest must never block it.
+            ordered = [yesterday] + sorted(
+                d for d in candidates[digest_type] if d != yesterday
+            )
+            for date_str in ordered:
+                try:
+                    results.append(
+                        export_and_send_digest(
+                            conn,
+                            digest_type,
+                            date_str,
+                            refreshed=date_str < yesterday,
+                            refreshed_date=today,
+                            force=force,
+                            dry_run=dry_run,
+                            recipient=recipient,
+                        )
                     )
-                )
+                except Exception as e:
+                    logger.exception(
+                        "Kindle delivery failed for %s %s", digest_type, date_str
+                    )
+                    results.append({
+                        "type": digest_type,
+                        "date": date_str,
+                        "status": "failed",
+                        "reason": f"{type(e).__name__}: {e}",
+                    })
     finally:
         conn.close()
 
