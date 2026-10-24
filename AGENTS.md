@@ -521,6 +521,8 @@ These are DONE — a fresh agent must know they exist and where, to avoid
     `test_kindle_batch_sends_yesterday_first_and_continues_after_failure`.
 - **Backfill**: the missing 22 October RSS + YouTube digests were sent
   manually with `scripts/send_kindle_digests.py --date 2026-10-22 --type both`.
+- **Deployed** 2026-10-24 (`bf8d5b7`) via git bundle; app + worker restarted.
+  Verified `kindle_sends` now has `rss` and `youtube` rows for 2026-10-22.
 
 ## 7. Environment / Config (app/config.py)
 
@@ -642,6 +644,11 @@ applied to Gemini only (DeepSeek ignores it). Every call outcome is recorded in
 
 ## 11. Current Data State (as of 2026-08-15)
 
+- **Kindle DB-lock fix (2026-10-24)**: commit `bf8d5b7` deployed to the VPS
+  (git bundle; app + worker restarted; 129 tests pass). Root cause was an
+  uncommitted write transaction held across the Kindle phase; the missing
+  **22 October 2026** RSS + YouTube EPUBs were backfilled and are now recorded
+  in `kindle_sends`.
 - **Kindle delivery (2026-10-03)**: implemented, tested (109 tests), and
   **DEPLOYED to the VPS**. Local: migration `010_kindle_sends` applied and real
   test emails sent to `psh1021_m3QS7u@kindle.com` (`RSS Digest - 02 October
