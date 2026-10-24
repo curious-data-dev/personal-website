@@ -623,7 +623,6 @@ These are DONE — a fresh agent must know they exist and where, to avoid
   the write, and the limiter now fails closed regardless.
 - **Tests**: 148 pass (chunk/reduce tests replaced with single-pass + full-
   summary digest tests).
-- **Not deployed**. Regeneration of 2026-10-22 pre/post is the acceptance check.
 - **Pre/post acceptance (2026-10-22, same VPS snapshot):**
   - RSS stored (pre) → regenerated (post): **18 → 33 story blocks**, 22,748 →
     31,707 chars, numeric recall of the day's facts **0.290 → 0.367**, month
@@ -635,6 +634,29 @@ These are DONE — a fresh agent must know they exist and where, to avoid
     (one per source article) and the AI-security newsletter's product blurbs
     (Vanta/Town/Nate Grahek etc.) now surface as separate blocks; the merge
     model still occasionally leaves the literal `## Sections` heading.
+- **Prompt fixes applied after the experiment** (same commit): merge now
+  de-dupes same-event blocks (the SBI story merges into one block with both
+  sets of facts) and the extract prompt skips promotional filler (Vanta/Town/
+  Nate Grahek/SOC 2/donor tracker gone). 33 → 28-31 blocks on 22 Oct. A code
+  guard `_strip_placeholder_sections()` also removes any stray `## Sections`
+  heading (and promotes nested `###` to `##`); the prompt no longer contains
+  that literal heading. Tests: **152 pass**.
+- **Deployed 2026-10-24** (`219995e`): `git pull` + `docker compose up -d`
+  recreated app + worker with `./prompts:/app/prompts`; health OK; container
+  reports `max_article_chars=50000`, `article_max_output_tokens=6144` and the
+  5 active prompts.
+- **Production validation (run #23, manually enqueued through
+  `enqueue_scheduled_run()`, same path as the cron):** completed in ~2 min;
+  5 articles summarized single-pass; RSS digest 2026-10-24 = 22 blocks, **no
+  literal `## Sections`**; YouTube digest generated; **Kindle EPUB
+  `RSS Digest - 23 October 2026` sent to `psh1021_m3QS7u@kindle.com`** and
+  recorded in `kindle_sends`. EPUB validated with `zipfile`: integrity OK,
+  `mimetype=application/epub+zip`, `<dc:title>` correct, 9 chapters, 25.4K
+  chars of HTML. The 23 Oct digest itself predates the fix, so that EPUB still
+  contains the old `Sections` heading; the new 24 Oct digest is clean.
+- **Scheduler**: app logs `Next scheduled run: 2026-10-25 08:00:00+05:30`
+  (Asia/Kolkata). Tomorrow's run will send 2026-10-24 RSS **and** YouTube
+  EPUBs (both digests exist).
 
 
 ## 7. Environment / Config (app/config.py)
