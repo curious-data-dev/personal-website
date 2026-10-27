@@ -679,8 +679,13 @@ Key settings (env-overridable via `.env`):
   `max_article_chars = 50000` (raised from 15000; largest observed article is
   48,846 chars), `article_max_output_tokens = 6144`,
   `chunk_size = 4000` (only the standalone chunker/diagnostics use it)
-- `scrape_cron_hour = 8` (VPS `.env` sets `SCRAPE_CRON_HOUR=08`, `MINUTE=00` →
-  **daily 08:00 IST**)
+- `scrape_cron_hour = 8` (code default; **VPS `.env` now sets
+  `SCRAPE_CRON_HOUR=06`, `MINUTE=45` → daily 06:45 IST since 2026-10-27**).
+  Rationale: the Kindle email (yesterday's digest) is ready before 7 a.m.;
+  runs take 3.6-9.8 min. Analysis showed the 07:00-08:00 window contains only
+  same-day publishers (Finshots 07:00, Daily Brief 07:14-07:46) and **zero**
+  D-1 articles, so yesterday's digest content is unchanged. VPS `.env` backup:
+  `.env.bak-cron-<stamp>`.
 - Kindle: `kindle_email` (`@kindle.com` address), `kindle_enabled = True`,
   `kindle_export_dir = "./data/kindle_exports"` (see §6.12). Sent from
   `gmail_user` using `gmail_app_password`.
